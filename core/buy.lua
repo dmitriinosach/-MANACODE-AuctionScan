@@ -1,0 +1,284 @@
+local _, ns = ...
+local Buy = {}
+ns.Buy = Buy
+local PAGE = 50
+local SETTLE = 0.3
+local REREAD = 3
+local AFTER_BUY = 2
+local TIMEOUT = 10
+local SEND_LIMIT = 30
+local PENDING = 5
+local NAME_BYTES = 63
+local R = {
+    phase = "idle", name = "", plan = nil, want = {}, page = 0, pages = 0, pass = 1, startPage = 0,
+    matches = {}, rereads = 0, bought = 0, spent = 0, refused = 0, pending = {},
+    sentAt = 0, readAt = 0, nextAt = 0,
+}
+Buy.state = R
+Buy.onChange = nil
+local sending = false
+local hooked = false
+local function changed()
+    if Buy.onChange then Buy.onChange() end
+end
+local function utf8cut(s, bytes)
+    if #s <= bytes then return s end
+    local cut = bytes
+    while cut > 0 do
+        local b = s:byte(cut + 1)
+        if not b or b < 128 or b >= 192 then break end
+        cut = cut - 1
+    end
+    return s:sub(1, cut)
+end
+local function queryName(name)
+    if #name <= NAME_BYTES then return name end
+    local out = ""
+    for word in name:gmatch("%S+") do
+        local cand = out == "" and word or out .. " " .. word
+        if #cand > NAME_BYTES then break end
+        out = cand
+    end
+    return out ~= "" and out or utf8cut(name, NAME_BYTES)
+end
+function Buy.Active()
+    return R.phase ~= "idle"
+end
+function Buy.Left()
+    local n = 0
+    for _, k in pairs(R.want) do n = n + k end
+    return n
+end
+local function stop(key, ...)
+    R.stopKey = key
+    R.phase, R.matches = "idle", {}
+    ns.say(ns.T(key, ...))
+    changed()
+end
+local function finish(delay)
+    R.phase, R.nextAt, R.matches = "finish", GetTime() + delay, {}
+    changed()
+end
+local function onForeign()
+    if sending or R.phase == "idle" or R.phase == "finish" then return end
+    stop("sayBuyForeign", R.bought, GetCoinTextureString(R.spent))
+end
+local function send()
+    sending = true
+    local class, sub = ns.Compat.AuctionFilter(R.itemID)
+    local sent = ns.Query.Send(queryName(R.name), R.page, false, {classIndex = class, subClassIndex = sub})
+    sending = false
+    if not sent then return end
+    R.phase, R.sentAt = "wait", GetTime()
+    changed()
+end
+local function shortage()
+    local need = R.plan.need
+    stop("sayBuyShort", R.bought, need, math.max(0, need - R.bought))
+end
+local function match(i, me, strict, taken)
+    local name, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
+    if not name or (strict and not owner) then return nil end
+    if not owner or owner == me or (name ~= R.name and not (R.guard and R.itemID)) then return false end
+    if R.itemID and ns.Lot.FromLink(GetAuctionItemLink("list", i)) ~= R.itemID then return false end
+    for offer, k in pairs(R.want) do
+        if k > (taken[offer] or 0) and count == offer.stack and buyout == offer.buyout then return offer end
+    end
+    return false
+end
+local function readPage()
+    local batch, total = GetNumAuctionItems("list")
+    batch, total = batch or 0, total or 0
+    if batch == 0 and total > R.page * PAGE then
+        ns.Query.Cooldown(120)
+        return stop("sayBuyRefused")
+    end
+    local me = UnitName("player")
+    local strict = R.rereads < REREAD
+    local found, taken, cold = {}, {}, false
+    for i = 1, batch do
+        local offer = match(i, me, strict, taken)
+        if offer == nil then
+            cold = true
+        elseif offer then
+            found[#found + 1] = { index = i, offer = offer }
+            taken[offer] = (taken[offer] or 0) + 1
+        end
+    end
+    if cold and strict then
+        R.rereads, R.readAt = R.rereads + 1, GetTime() + SETTLE
+        return
+    end
+    R.pages = math.ceil(total / PAGE)
+    if #found > 0 then
+        R.matches, R.phase = found, "ready"
+        return changed()
+    end
+    if R.page + 1 < R.pages then
+        R.page, R.phase, R.nextAt = R.page + 1, "send", GetTime()
+        return changed()
+    end
+    if R.pass == 1 and R.startPage > 0 then
+        R.pass, R.page, R.phase, R.nextAt = 2, 0, "send", GetTime()
+        return changed()
+    end
+    shortage()
+end
+function Buy.Start(name, plan, itemID, guard)
+    if Buy.Active() then return false end
+    if not ns.Scan.state.open then ns.say(ns.T("sayNoAuction")); return false end
+    if ns.Scan.state.phase ~= "idle" then ns.say(ns.T("sayBusy")); return false end
+    if ns.Query.Cooling() > 0 then ns.say(ns.T("tradeCooling", math.ceil(ns.Query.Cooling()))); return false end
+    for _, pending in ipairs(R.pending) do
+        if pending.expires > GetTime() then ns.say(ns.T("buySettling")); return false end
+    end
+    if not plan or plan.lots <= 0 then return false end
+    if not hooked then
+        hooksecurefunc("QueryAuctionItems", onForeign)
+        hooked = true
+    end
+    R.name, R.plan, R.want, R.itemID = name, ns.Plan.Copy(plan), {}, itemID
+    R.guard, R.stopKey = guard, nil
+    local start
+    for _, p in ipairs(R.plan.picks) do
+        if p.lots > 0 then
+            R.want[p.offer] = p.lots
+            local page = p.offer.page or 0
+            if not start or page < start then start = page end
+        end
+    end
+    R.startPage, R.page, R.pages, R.pass = start or 0, start or 0, 0, 1
+    R.bought, R.spent, R.refused, R.pending, R.matches = 0, 0, 0, {}, {}
+    R.phase, R.nextAt = "send", GetTime()
+    changed()
+    return true
+end
+local function stillThere(m, me)
+    local name, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", m.index)
+    local item = ns.Lot.FromLink(GetAuctionItemLink("list", m.index))
+    return (name == R.name or (R.guard and R.itemID)) and count == m.offer.stack and buyout == m.offer.buyout and owner ~= nil and owner ~= me
+        and (not R.itemID or item == R.itemID)
+end
+function Buy.Confirm()
+    if R.phase ~= "ready" or not ns.Scan.state.open then return false end
+    local me = UnitName("player")
+    if R.guard then
+        for _, match in ipairs(R.matches) do
+            if not stillThere(match, me) or not R.guard(match.index) then stop("deBuyChanged"); return false end
+        end
+    end
+    local money, now = GetMoney(), GetTime()
+    local bids, per, poor = 0, {}, false
+    for _, m in ipairs(R.matches) do
+        local o = m.offer
+        if (R.want[o] or 0) > 0 and stillThere(m, me) then
+            if money < o.buyout then
+                poor = true
+            else
+                PlaceAuctionBid("list", m.index, o.buyout)
+                money = money - o.buyout
+                R.want[o] = R.want[o] - 1
+                R.bought, R.spent = R.bought + o.stack, R.spent + o.buyout
+                R.pending[#R.pending + 1] = { offer = o, expires = now + PENDING }
+                per[o] = (per[o] or 0) + 1
+                bids = bids + 1
+            end
+        end
+    end
+    R.matches = {}
+    for o, n in pairs(per) do o.count = math.max(0, o.count - n) end
+    if bids == 0 then
+        if poor then
+            stop("sayBuyMoney")
+        else
+            R.phase, R.nextAt = "send", now
+            changed()
+        end
+        return false
+    end
+    if Buy.Left() <= 0 then
+        finish(PENDING)
+    elseif poor then
+        stop("sayBuyMoney")
+    else
+        R.phase, R.nextAt = "send", now + AFTER_BUY
+        changed()
+    end
+    return true
+end
+function Buy.Offer()
+    if R.phase ~= "ready" then return 0, 0 end
+    local c = 0
+    for _, m in ipairs(R.matches) do c = c + m.offer.buyout end
+    return #R.matches, c
+end
+function Buy.Stop()
+    if not Buy.Active() then return false end
+    stop("sayBuyStopped", R.bought, GetCoinTextureString(R.spent))
+    return true
+end
+function Buy.OnListUpdate()
+    if R.phase ~= "wait" and R.phase ~= "ready" then return end
+    R.phase, R.readAt, R.rereads = "settle", GetTime() + SETTLE, 0
+end
+local refusals
+local function isRefusal(text)
+    if not refusals then
+        refusals = {}
+        local keys = { ERR_ITEM_NOT_FOUND, ERR_AUCTION_HIGHER_BID, ERR_NOT_ENOUGH_MONEY, ERR_AUCTION_BID_OWN,
+                       ERR_AUCTION_DATABASE_ERROR }
+        for i = 1, 5 do
+            if keys[i] then refusals[keys[i]] = true end
+        end
+    end
+    return refusals[text] == true
+end
+local function takePending()
+    local now = GetTime()
+    while R.pending[1] do
+        local p = table.remove(R.pending, 1)
+        if now <= p.expires then return p end
+    end
+    return nil
+end
+function Buy.OnError(text)
+    if not text then return end
+    local active = Buy.Active()
+    if isRefusal(text) then
+        local p = takePending()
+        if p then
+            p.offer.count = p.offer.count + 1
+            R.bought, R.spent, R.refused = R.bought - p.offer.stack, R.spent - p.offer.buyout, R.refused + 1
+            if Buy.Active() then
+                R.want[p.offer] = (R.want[p.offer] or 0) + 1
+                if R.phase == "finish" then
+                    R.page, R.pass, R.phase, R.nextAt = R.startPage, 1, "send", GetTime() + AFTER_BUY
+                end
+            end
+            changed()
+        end
+    end
+    if active and text == ERR_AUCTION_DATABASE_ERROR then
+        ns.Query.Cooldown(120)
+        stop("sayBuyRefused")
+    end
+end
+function Buy.OnClose()
+    if Buy.Active() then stop("sayBuyClosed", R.bought, GetCoinTextureString(R.spent)) end
+end
+function Buy.OnUpdate()
+    local phase, now = R.phase, GetTime()
+    if phase == "send" then
+        if now >= R.nextAt and ns.Query.Ready() then
+            send()
+        elseif now - R.nextAt > SEND_LIMIT then
+            stop("sayBuyTimeout")
+        end
+    elseif phase == "wait" then
+        if now - R.sentAt > TIMEOUT then stop("sayBuyTimeout") end
+    elseif phase == "settle" then
+        if now >= R.readAt then readPage() end
+    elseif phase == "finish" then
+        if now >= R.nextAt then stop("sayBuyDone", R.bought, GetCoinTextureString(R.spent)) end
+    end
+end

@@ -1,0 +1,31 @@
+local _, ns = ...
+ns.craftCatalogs = ns.craftCatalogs or {}
+ns.craftCatalogs.blacksmithing = {
+    labelKey = "professionBlacksmithing",
+    recipes = {
+        {raw = 41611, spell = 55656, count = 1, category = "blacksmithingEnhancements",
+            inputs = {{36913, 4}, {35624, 1}, {35622, 1}, {35627, 1}}},
+        {raw = 44936, spell = 62202, count = 1, category = "blacksmithingEnhancements",
+            inputs = {{41163, 4}, {35627, 4}}},
+        {raw = 42500, spell = 56357, count = 1, category = "blacksmithingEnhancements",
+            inputs = {{41163, 1}, {36913, 2}}},
+        {raw = 41976, spell = 55839, count = 1, category = "blacksmithingEnhancements",
+            inputs = {{41163, 1}, {36913, 2}}},
+        {raw = 41745, spell = 55732, count = 1, category = "blacksmithingTools",
+            inputs = {{41163, 1}, {36913, 2}}},
+        {raw = 41386, spell = 55372, count = 1, category = "blacksmithingGear",
+            inputs = {{36913, 4}, {37663, 4}, {43102, 1}}},
+        {raw = 41387, spell = 55373, count = 1, category = "blacksmithingGear",
+            inputs = {{36913, 4}, {37663, 4}, {43102, 1}}},
+        {raw = 41391, spell = 55375, count = 1, category = "blacksmithingGear",
+            inputs = {{36913, 4}, {37663, 3}, {43102, 1}}},
+        {raw = 42508, spell = 56400, count = 1, category = "blacksmithingGear",
+            inputs = {{36913, 4}, {37663, 3}, {43102, 1}}},
+        {raw = 45085, spell = 63182, count = 1, category = "blacksmithingGear",
+            inputs = {{37663, 6}, {34054, 6}, {43102, 2}}},
+        {raw = 41257, spell = 55369, count = 1, category = "blacksmithingGear",
+            inputs = {{36913, 8}, {37663, 8}, {43102, 2}}},
+        {raw = 49906, spell = 70566, count = 1, category = "blacksmithingGear",
+            inputs = {{37663, 8}, {35622, 6}, {36860, 6}, {49908, 5}}},
+    },
+}

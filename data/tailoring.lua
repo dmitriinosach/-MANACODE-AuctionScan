@@ -1,0 +1,31 @@
+local _, ns = ...
+ns.craftCatalogs = ns.craftCatalogs or {}
+ns.craftCatalogs.tailoring = {
+    labelKey = "professionTailoring",
+    recipes = {
+        {raw = 41599, spell = 56007, count = 1, category = "tailoringBags",
+            inputs = {{41511, 6}, {38426, 2}}},
+        {raw = 41600, spell = 56005, count = 1, category = "tailoringBags", cooldown = true,
+            inputs = {{41593, 4}, {41594, 4}, {38426, 1}}},
+        {raw = 41510, spell = 55899, count = 1, category = "tailoringCloth",
+            inputs = {{33470, 5}}},
+        {raw = 41511, spell = 55900, count = 1, category = "tailoringCloth",
+            inputs = {{34054, 2}, {41510, 2}}},
+        {raw = 41593, spell = 56002, count = 1, category = "tailoringCloth",
+            inputs = {{35627, 2}, {41511, 1}}},
+        {raw = 41594, spell = 56001, count = 1, category = "tailoringCloth",
+            inputs = {{35625, 2}, {41511, 1}}},
+        {raw = 41595, spell = 56003, count = 1, category = "tailoringCloth",
+            inputs = {{36860, 2}, {41511, 1}}},
+        {raw = 41602, spell = 56009, count = 1, category = "tailoringSpellthreads",
+            inputs = {{43102, 1}, {35625, 4}, {42253, 4}}},
+        {raw = 41604, spell = 56011, count = 1, category = "tailoringSpellthreads",
+            inputs = {{43102, 1}, {36860, 4}, {42253, 4}}},
+        {raw = 49890, spell = 70551, count = 1, category = "tailoringArmor",
+            inputs = {{41593, 6}, {41595, 6}, {49908, 5}}},
+        {raw = 49891, spell = 70550, count = 1, category = "tailoringArmor",
+            inputs = {{41593, 10}, {41595, 10}, {49908, 8}}},
+        {raw = 42102, spell = 56028, count = 1, category = "tailoringArmor",
+            inputs = {{41595, 8}, {43102, 1}, {41511, 6}, {38426, 1}}},
+    },
+}

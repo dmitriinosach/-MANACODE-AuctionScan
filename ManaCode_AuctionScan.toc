@@ -1,0 +1,59 @@
+## Interface: 30300
+## Title: |cff3399ff[MANACODE]|r AuctionScan
+## Title-ruRU: |cff3399ff[MANACODE]|r AuctionScan |cff808080— скан аукциона|r
+## Notes: Full auction house scan saved for outside analysis.
+## Notes-ruRU: Полный скан аукциона для анализа вне игры
+## Author: Manacode
+## Version: 0.1.0
+## SavedVariables: AuctionScanDB
+
+compat\wotlk.lua
+as.lua
+core\locale.lua
+locale\ruRU.lua
+locale\enchanting_ru.lua
+locale\tailoring_ru.lua
+locale\blacksmithing_ru.lua
+locale\vendor_recipes_ru.lua
+
+core\lot.lua
+core\store.lua
+core\query.lua
+core\scan.lua
+core\plan.lua
+core\buy.lua
+data\jewelcrafting.lua
+data\alchemy.lua
+data\enchanting.lua
+data\tailoring.lua
+data\blacksmithing.lua
+data\vendor_recipes.lua
+data\disenchanting.lua
+data\seasonal.lua
+data\shared.lua
+core\markets.lua
+core\shared.lua
+core\activity.lua
+core\family.lua
+core\shopping.lua
+core\batch.lua
+core\alchemy.lua
+core\reagents.lua
+core\resale.lua
+core\craft_plan.lua
+core\disenchant.lua
+core\collections.lua
+
+ui\button.lua
+ui\kit.lua
+ui\history.lua
+ui\window.lua
+ui\auction.lua
+ui\shopping.lua
+ui\family.lua
+ui\alchemy.lua
+ui\reagents.lua
+ui\resale.lua
+ui\disenchant.lua
+ui\collections.lua
+ui\trader.lua
