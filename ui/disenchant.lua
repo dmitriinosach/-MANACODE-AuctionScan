@@ -44,6 +44,14 @@ function UI:ReadSettings()
     self.tailPercent, self.buyPercent = tail, buy
     return true
 end
+function UI:Commit(edit, apply, show)
+    edit:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
+    edit:SetScript("OnEscapePressed", function(box) box:SetText(show()); box:ClearFocus() end)
+    edit:SetScript("OnEditFocusLost", function(box)
+        apply((box:GetText():gsub(",", ".")))
+        box:SetText(show()); self:Render()
+    end)
+end
 function UI:NewSettings(parent)
     local K = ns.TradeKit
     self.tailCheck = K.Check(parent, function(value) self.tail = value; self:Render() end)
@@ -53,11 +61,10 @@ function UI:NewSettings(parent)
     K.Tooltip(self.tailCheck, ns.T("deTail"), ns.T("deTailTip"))
     self.tailEdit = K.Edit(parent, 52); self.tailEdit:SetText(tostring(self.tailPercent))
     self.tailEdit:SetPoint("TOPLEFT", parent, "TOPLEFT", 136, -59)
-    self.tailEdit:SetScript("OnEnterPressed", function(edit)
-        local value = tonumber((edit:GetText():gsub(",", ".")))
-        if value and value > -100 and value <= 1000 then self.tailPercent = value else edit:SetText(tostring(self.tailPercent)) end
-        edit:ClearFocus(); self:Render()
-    end)
+    self:Commit(self.tailEdit, function(text)
+        local value = tonumber(text)
+        if value and value > -100 and value <= 1000 then self.tailPercent = value end
+    end, function() return tostring(self.tailPercent) end)
     K.Label(parent, ns.T("dePercent"), 194, -65, 18)
     K.Label(parent, ns.T("deDuration"), 232, -65, 62)
     self.duration = K.Menu(parent, {{key = 12, labelKey = "de12Hours"},
@@ -68,22 +75,19 @@ function UI:NewSettings(parent)
     K.Label(parent, ns.T("deLosses"), 380, -65, 78)
     self.lossEdit = K.Edit(parent, 36); self.lossEdit:SetText("1")
     self.lossEdit:SetPoint("TOPLEFT", parent, "TOPLEFT", 460, -59)
-    self.lossEdit:SetScript("OnEnterPressed", function(edit)
-        local value = tonumber(edit:GetText())
+    self:Commit(self.lossEdit, function(text)
+        local value = tonumber(text)
         if value and value >= 0 and value <= 100 then self.selling.losses = math.floor(value) end
-        edit:SetText(tostring(self.selling.losses)); edit:ClearFocus(); self:Render()
-    end)
+    end, function() return tostring(self.selling.losses) end)
     K.Tooltip(self.lossEdit, ns.T("deLosses"), ns.T("deDepositTip"))
     K.Label(parent, ns.T("deDepositOverride"), 510, -65, 120)
     self.depositEdit = K.Edit(parent, 70)
     self.depositEdit:SetPoint("TOPLEFT", parent, "TOPLEFT", 634, -59)
-    self.depositEdit:SetScript("OnEnterPressed", function(edit)
-        local text = edit:GetText():gsub(",", ".")
+    self:Commit(self.depositEdit, function(text)
         local value = tonumber(text)
         if text == "" then self.selling.base = nil
         elseif value and value >= 0 and value <= 10000 then self.selling.base = math.floor(value * 10000 + 0.5) end
-        edit:ClearFocus(); self:Render()
-    end)
+    end, function() return self.selling.base and tostring(self.selling.base / 10000) or "" end)
     K.Tooltip(self.depositEdit, ns.T("deDepositOverride"), ns.T("deDepositOverrideTip"))
     self.priceToggle = K.Button(parent, ns.T("dePrices"), 140, function()
         self.pricesExpanded = not self.showPrices; self:Render()
@@ -99,7 +103,7 @@ end
 function UI:Prices()
     local ids, K = ns.Disenchant.Materials(self.group), ns.TradeKit
     local width = self.frame:GetWidth() or 996
-    local columns = math.max(1, math.floor((width - 20) / 300))
+    local columns = math.max(1, math.floor((width - 20) / 400))
     local cell = math.floor((width - 20) / columns)
     self.showPrices = self.pricesExpanded
     if self.showPrices == nil then self.showPrices = (self.frame:GetHeight() or 510) >= 420 end
@@ -116,6 +120,33 @@ function UI:Prices()
         else editor.frame:Hide() end
     end
     return (self.showPrices and 118 + math.ceil(#ids / columns) * 32 or 116) + 48
+end
+function UI:Spread(estimate)
+    local bar, K = self.spread, ns.TradeKit
+    local known = estimate and estimate.low ~= nil and estimate.margin ~= nil
+    bar.title:SetText(estimate and ns.T("deSpreadTitle") or "")
+    for _, part in ipairs({bar.track, bar.negative, bar.positive, bar.zero, bar.average}) do part:Hide() end
+    bar.low:SetText(""); bar.high:SetText("")
+    if not estimate then bar.percent:SetText(""); return end
+    if not known then bar.percent:SetText(ns.T("deSpreadNone")); return end
+    local low, high = estimate.low, estimate.high
+    local floor, ceiling = math.min(low, 0), math.max(high, 0)
+    local span = math.max(1, ceiling - floor)
+    local width = bar.width
+    local function at(value) return math.floor((value - floor) / span * width + 0.5) end
+    local function place(part, from, to)
+        part:ClearAllPoints(); part:SetPoint("TOPLEFT", bar.frame, "TOPLEFT", from, 0)
+        part:SetWidth(math.max(2, to - from)); part:SetHeight(10); part:Show()
+    end
+    place(bar.track, 0, width)
+    if low < 0 then place(bar.negative, at(low), at(math.min(high, 0))) end
+    if high > 0 then place(bar.positive, at(math.max(low, 0)), at(high)) end
+    place(bar.zero, math.min(width - 2, at(0)), math.min(width, at(0) + 2))
+    place(bar.average, math.max(0, math.min(width - 2, at(estimate.margin) - 1)), math.min(width, at(estimate.margin) + 1))
+    bar.low:SetText(K.Money(low)); bar.high:SetText(K.Money(high))
+    bar.low:SetTextColor(unpack(K.theme[low > 0 and "positive" or "negative"]))
+    bar.high:SetTextColor(unpack(K.theme[high > 0 and "positive" or "negative"]))
+    bar.percent:SetText(estimate.lowPercent and ns.T("deSpreadPercent", estimate.lowPercent, estimate.highPercent) or "")
 end
 function UI:Render()
     if not self.frame then return end
@@ -161,6 +192,8 @@ function UI:Render()
         if entry then
             row:SetProps({id = entry.id, width = width, quote = {price = entry.cost, units = entry.units},
                 margin = entry.estimate.margin, percent = entry.estimate.percent, active = entry.id == self.selected,
+                match = entry.estimate.fresh and entry.estimate.percent ~= nil
+                    and entry.estimate.percent > self.buyPercent,
                 quality = entry.meta.quality or 2,
                 detail = ns.T(self.qualityLabels[entry.meta.quality or 2]) .. " | "
                     .. ns.T("deRow", entry.meta.level, entry.meta.skill), extraTip = ns.T("deModelTip")})
@@ -182,18 +215,22 @@ function UI:Render()
         self.inspector:SetProps({id = selected.id}); self.item:Show()
         local estimate, lines = selected.estimate, {}
         for _, output in ipairs(estimate.outputs) do
-            lines[#lines + 1] = ns.T("deOutput", output.quantity, ns.Markets.Name(output.id), K.Money(output.price))
+            local amount = output.minCount == output.maxCount and tostring(output.minCount)
+                or output.minCount .. "-" .. output.maxCount
+            lines[#lines + 1] = ns.T("deOutput", string.format("%g", output.chance * 100), amount,
+                ns.Markets.Name(output.id), output.quantity, K.Money(output.price))
         end
+        self:Spread(estimate)
         self.summary:SetText(ns.T("deSummary", K.Money(selected.cost), K.Money(estimate.net), K.Money(estimate.margin))
             .. "\n" .. ns.T("deDepositSummary", self.selling.hours, K.Money(estimate.deposit), self.selling.losses, K.Money(estimate.reserve))
             .. "\n\n" .. table.concat(lines, "\n") .. "\n\n" .. ns.T(estimate.fresh and "deFresh" or "deStale"))
-    else self.inspector:Clear(); self.summary:SetText(ns.T(progress and "deRunningGuide" or "deIntro")) end
+    else self.inspector:Clear(); self:Spread(nil); self.summary:SetText(ns.T(progress and "deRunningGuide" or "deIntro")) end
     self.feeButton:SetText(ns.T("tradeFee", math.floor(self.fee * 100 + 0.5)))
     self.preview = ns.Disenchant.PurchasePlan(self.group, {fee = self.fee, selling = self.selling, percent = self.buyPercent})
     self.buyPreview:SetText(ns.T("deBuyPreview", self.preview.count, K.Money(self.preview.cost)))
     if ns.Disenchant.purchase then self.status:SetText(ns.T("deBuyStage", ns.Disenchant.purchase.index,
         #ns.Disenchant.purchase.plan.items, ns.Buy.state.bought, K.Money(ns.Buy.state.spent))) end
-    self.summary:SetHeight(math.max(60, (self.inspector.body:GetHeight() or 374) - 94))
+    self.summary:SetHeight(math.max(60, (self.inspector.body:GetHeight() or 374) - 144))
     self:Controls()
 end
 function UI:New(parent)
@@ -261,7 +298,10 @@ function UI:New(parent)
     K.Tooltip(self.buy, ns.T("deBuyByMargin"), ns.T("deBuyTip"))
     self.buyEdit = K.Edit(f, 48); self.buyEdit:SetText(tostring(self.buyPercent))
     self.buyEdit:SetPoint("RIGHT", self.buy, "LEFT", -6, 0)
-    self.buyEdit:SetScript("OnEnterPressed", function(edit) self:ReadSettings(); edit:ClearFocus(); self:Render() end)
+    self:Commit(self.buyEdit, function(text)
+        local value = tonumber(text)
+        if value and value > -100 and value <= 1000 then self.buyPercent = value end
+    end, function() return tostring(self.buyPercent) end)
     self.buyLabel = K.Label(f, ns.T("deBuyThreshold"), 0, 0, 76)
     self.buyLabel:ClearAllPoints(); self.buyLabel:SetPoint("RIGHT", self.buyEdit, "LEFT", -4, 0)
     self.buyPreview = K.Label(f, "", 160, -96, 460)
@@ -272,7 +312,29 @@ function UI:New(parent)
     self.inspector = K.Inspector:New(f)
     local panel = self.inspector.body
     self.item = self.inspector.item
-    self.summary = K.Label(panel, "", 12, -46, 240)
+    local bar = {frame = ns.NewFrame("Frame", nil, panel), width = 216}
+    bar.frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -64)
+    bar.frame:SetWidth(bar.width); bar.frame:SetHeight(10); bar.frame:EnableMouse(true)
+    bar.title = K.Label(panel, "", 12, -48, 240)
+    bar.title:SetTextColor(unpack(K.theme.secondary))
+    local function part(layer, color)
+        local texture = bar.frame:CreateTexture(nil, layer)
+        texture:SetTexture(K.theme.white); texture:SetVertexColor(unpack(color)); texture:Hide()
+        return texture
+    end
+    bar.track = part("BACKGROUND", {1, 1, 1, 0.08})
+    bar.negative = part("BORDER", {1, 0.35, 0.3, 0.9})
+    bar.positive = part("BORDER", {0.4, 1, 0.5, 0.9})
+    bar.zero = part("ARTWORK", {1, 1, 1, 1})
+    bar.average = part("OVERLAY", {1, 0.82, 0, 1})
+    bar.low = K.Label(panel, "", 12, -78, 116)
+    bar.high = K.Label(panel, "", 124, -78, 116)
+    bar.high:SetJustifyH("RIGHT")
+    bar.percent = K.Label(panel, "", 12, -93, 240)
+    bar.percent:SetTextColor(unpack(K.theme.secondary))
+    K.Tooltip(bar.frame, ns.T("deSpreadTitle"), ns.T("deSpreadTip"))
+    self.spread = bar
+    self.summary = K.Label(panel, "", 12, -112, 240)
     self.summary:SetHeight(300); self.summary:SetJustifyV("TOP")
     local info = K.Button(panel, ns.T("tradeInfo"), 24, function() end)
     info:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -12, 12)

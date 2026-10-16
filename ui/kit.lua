@@ -320,8 +320,17 @@ function QuoteEditor:New(parent, save, refresh)
     view.frame = ns.NewFrame("Frame", nil, parent); view.frame:SetHeight(30)
     view.item = K.ItemChoice(view.frame, function() ns.Trader.OpenReagent(view.props.id) end)
     view.item:SetPoint("LEFT", view.frame, "LEFT", 0, 0)
+    view.cell = view.frame:CreateTexture(nil, "BACKGROUND")
+    view.cell:SetAllPoints(view.frame); view.cell:SetTexture(K.theme.white)
+    view.cell:SetVertexColor(unpack(K.theme.row))
     view.edit = K.Edit(view.frame, 70)
-    view.edit:SetPoint("RIGHT", view.frame, "RIGHT", -88, 0)
+    view.edit:SetPoint("RIGHT", view.frame, "RIGHT", -104, 0)
+    view.unit = K.Label(view.frame, ns.T("deGold"), 0, 0, 12)
+    view.unit:ClearAllPoints(); view.unit:SetPoint("LEFT", view.edit, "RIGHT", 3, 0)
+    view.unit:SetTextColor(unpack(K.theme.gold))
+    view.coin = K.Label(view.frame, "", 0, 0, 96)
+    view.coin:ClearAllPoints(); view.coin:SetPoint("RIGHT", view.edit, "LEFT", -8, 0)
+    view.coin:SetJustifyH("RIGHT")
     view.edit:SetScript("OnTextChanged", function(_, user) if user then view.draft = true end end)
     view.edit:SetScript("OnEnterPressed", function()
         if view.props.disabled then return end
@@ -349,7 +358,9 @@ function QuoteEditor:Render()
     local p = self.props
     self.frame:SetWidth(p.width)
     K.SetItemChoice(self.item, p.id, false)
-    self.item:SetWidth(p.width - 166); self.item.text:SetWidth(math.max(30, p.width - 196))
+    self.item:SetWidth(p.width - 270); self.item.text:SetWidth(math.max(30, p.width - 300))
+    self.coin:SetText(K.Money(p.quote and p.quote.price))
+    self.coin:SetTextColor(unpack(K.theme[p.quote and p.quote.manual and "gold" or "text"]))
     if not self.draft then self.edit:SetText(p.quote and p.quote.price and string.format("%.4f", p.quote.price / 10000) or "") end
     self.edit:EnableMouse(not p.disabled)
     if p.disabled then self.edit:ClearFocus(); self.refresh:Disable() else self.refresh:Enable() end
@@ -669,13 +680,21 @@ function K.MarketColumns(width, layout)
 end
 function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost)
     local row = setmetatable({}, self)
-    row.frame = K.ItemChoice(parent, function() selectRow(row.props.id) end)
+    row.frame = K.ItemChoice(parent, function() selectRow(row.props.id, row.props) end)
     parent.marketRowCount = (rawget(parent, "marketRowCount") or 0) + 1
     row.stripe = row.frame:CreateTexture(nil, "BACKGROUND")
     row.stripe:SetAllPoints(row.frame); row.stripe:SetTexture(K.theme.white)
     row.stripe:SetVertexColor(unpack(K.theme.row))
     if parent.marketRowCount % 2 == 0 then row.stripe:Hide() end
     row.frame.selected:SetDrawLayer("BORDER")
+    row.match = row.frame:CreateTexture(nil, "BACKGROUND")
+    row.match:SetAllPoints(row.frame); row.match:SetTexture(K.theme.white)
+    row.match:SetVertexColor(0.25, 0.75, 0.35, 0.16); row.match:Hide()
+    row.matchBar = row.frame:CreateTexture(nil, "BORDER")
+    row.matchBar:SetPoint("TOPLEFT", row.frame, "TOPLEFT", 0, 0)
+    row.matchBar:SetPoint("BOTTOMLEFT", row.frame, "BOTTOMLEFT", 0, 0)
+    row.matchBar:SetWidth(3); row.matchBar:SetTexture(K.theme.white)
+    row.matchBar:SetVertexColor(0.4, 1, 0.5, 1); row.matchBar:Hide()
     row.frame:SetHeight(30)
     row.frame.text:SetWidth(205)
     row.price = K.Label(row.frame, "", 240, -3, 120)
@@ -697,7 +716,7 @@ function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost)
     row.refresh:SetPoint("RIGHT", row.frame, "RIGHT", -2, 0)
     K.Tooltip(row.refresh, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
     if toggleMaterial then
-        row.expand = K.Button(row.frame, "+", 16, function() toggleMaterial(row.props.id) end, "quiet")
+        row.expand = K.Button(row.frame, "+", 16, function() toggleMaterial(row.props.id, row.props) end, "quiet")
         row.expand.text:ClearAllPoints(); row.expand.text:SetPoint("CENTER", row.expand, "CENTER", 0, 0)
         K.Tooltip(row.expand, ns.T("craftMaterialSource"), ns.T("craftTreeTip"))
     end
@@ -716,6 +735,7 @@ function MarketRow:Render()
     local p = self.props
     self.frame.extraTip = p.extraTip
     K.SetItemChoice(self.frame, p.id, p.active, p.quality)
+    if p.match then self.match:Show(); self.matchBar:Show() else self.match:Hide(); self.matchBar:Hide() end
     if p.width then
         local columns = K.MarketColumns(p.width, p.layout)
         self.frame:SetWidth(p.width)
@@ -748,7 +768,7 @@ function MarketRow:Render()
     end
     if self.include then
         self.include:SetChecked(not p.excluded)
-        if p.depth ~= nil then self.include:Show() else self.include:Hide() end
+        if p.depth ~= nil and p.include ~= false then self.include:Show() else self.include:Hide() end
     end
     self.price:SetText(K.Money(p.quote and p.quote.price))
     self.margin:SetText(K.Money(p.margin))

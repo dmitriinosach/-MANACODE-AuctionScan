@@ -1,6 +1,7 @@
 local _, ns = ...
 local D = {}
 ns.Disenchant = D
+D.RARE = 0.05
 D.groups = {
     {key = "wrathArmor", labelKey = "deWrathArmor", expansion = "wrath", classIndex = 2, minLevel = 68, maxLevel = 80},
     {key = "wrathWeapon", labelKey = "deWrathWeapon", expansion = "wrath", classIndex = 1, minLevel = 68, maxLevel = 80},
@@ -103,13 +104,31 @@ end
 function D.Band(key)
     for _, band in ipairs(ns.disenchantBands) do if band.key == key then return band end end
 end
+function D.Spread(result, fee, cost)
+    local low, high
+    for pass = 1, 2 do
+        for _, output in ipairs(result.outputs) do
+            if output.price and (pass == 2 or output.chance >= D.RARE) then
+                local least, most = output.minCount * output.price, output.maxCount * output.price
+                low = low and math.min(low, least) or least
+                high = high and math.max(high, most) or most
+            end
+        end
+        if low then break end
+    end
+    if not low then return end
+    result.low = low * (1 - fee) - result.reserve - cost
+    result.high = high * (1 - fee) - result.reserve - cost
+    if cost > 0 then result.lowPercent, result.highPercent = result.low / cost * 100, result.high / cost * 100 end
+end
 function D.Estimate(band, cost, fee, fixedPrices, selling)
     local result = {cost = cost, outputs = {}, gross = 0, fresh = true, deposit = 0}
     for _, output in ipairs(band.outputs) do
         local quote = fixedPrices and fixedPrices[output.itemID] or D.Quote(output.itemID)
         local quantity = output.chance * (output.minCount + output.maxCount) / 2
         local price = quote and quote.miss == 0 and quote.complete ~= false and quote.price
-        result.outputs[#result.outputs + 1] = {id = output.itemID, quantity = quantity, price = price}
+        result.outputs[#result.outputs + 1] = {id = output.itemID, quantity = quantity, price = price,
+            chance = output.chance, minCount = output.minCount, maxCount = output.maxCount}
         if selling then
             local _, _, _, _, _, _, _, stack, _, _, vendor = ns.Compat.ItemInfo(output.itemID)
             local deposit = 0
@@ -132,6 +151,7 @@ function D.Estimate(band, cost, fee, fixedPrices, selling)
         if selling and not result.deposit and (selling.losses or 0) > 0 then return result end
         result.net = result.gross * (1 - fee) - result.reserve
         result.margin = result.net - cost
+        D.Spread(result, fee, cost)
         result.percent = cost > 0 and result.margin / cost * 100 or nil
     end
     return result

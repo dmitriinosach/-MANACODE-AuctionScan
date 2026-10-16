@@ -57,6 +57,14 @@ function P.Build(recipe, options)
     end
     return result
 end
+function P.Stock(recipe)
+    local crafts
+    for _, input in ipairs(recipe.inputs) do
+        local enough = math.floor(math.max(0, GetItemCount(input[1], true) or 0) / input[2])
+        crafts = math.min(crafts or enough, enough)
+    end
+    return crafts or 0
+end
 function P.Rank(recipes, options)
     local ranked = {}
     for _, recipe in ipairs(recipes) do

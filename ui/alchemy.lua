@@ -1,6 +1,6 @@
 local _, ns = ...
 local UI = {props = {profession = "alchemy", recipe = 46376, id = 46376, fee = 0.05, page = 1, view = "list"},
-    rows = {}, make = {}, ignore = {}}
+    rows = {}, make = {}, ignore = {}, open = {}}
 ns.AlchemyUI = UI
 function UI:SetProps(props)
     local view = props.view or (props.recipe and "recipe")
@@ -10,6 +10,7 @@ function UI:SetProps(props)
         local first = ns.craftCatalogs[props.profession].recipes[1].raw
         self.props.recipe, self.props.id, self.props.page = first, first, 1
         self.make, self.ignore, self.props.craftAll = {}, {}, false
+        self.open = {}
         if self.scroll then self.scroll.offset = 0 end
         view = view or "list"
     end
@@ -27,10 +28,23 @@ function UI:SetProps(props)
     self.props.view = view or self.props.view
     self:Render()
 end
-function UI:Select(id)
-    if self.props.view == "list" then self:SetProps({recipe = id}) else self:SetProps({id = id}) end
+function UI:Select(id, row)
+    if self.props.view ~= "list" then self:SetProps({id = id}); return end
+    local owner = row and row.owner
+    if not owner or ns.craftCatalogs[self.props.profession].byItem[id] then self:SetProps({recipe = id}); return end
+    self:SetProps({recipe = owner})
+    for key in pairs(self.open[owner] or {}) do self.make[key] = true end
+    self:SetProps({id = id})
 end
-function UI:ToggleMaterial(id)
+function UI:ToggleMaterial(id, row)
+    if self.props.view == "list" then
+        local owner = row and row.owner
+        if owner then
+            local tree = self.open[owner]
+            tree[id] = not tree[id] or nil
+        else self.open[id] = not self.open[id] and {} or nil end
+        self:Render(); return
+    end
     local current = self.make[id]
     if current == nil then current = self.props.craftAll end
     self.make[id] = not current
@@ -95,16 +109,42 @@ function UI:RenderList(catalog, width)
             if entry.plan.margin > 0 then profitable = profitable + 1 end
         end
     end
+    local entries = {}
+    for _, entry in ipairs(ranked) do
+        entries[#entries + 1] = entry
+        if self.open[entry.raw] then
+            for _, node in ipairs(ns.CraftPlan.Build(entry.recipe, {make = self.open[entry.raw], fee = p.fee}).rows) do
+                entries[#entries + 1] = {node = node, owner = entry.raw}
+            end
+        end
+    end
     local visible = K.ListCapacity(self.frame, 56, 96, 29, #self.rows)
-    local offset = self.scroll:SetRange(#ranked, visible)
+    local offset = self.scroll:SetRange(#entries, visible)
     for i, row in ipairs(self.rows) do
-        local entry = i <= visible and ranked[offset + i]
-        if entry then
+        local entry = i <= visible and entries[offset + i]
+        if entry and entry.node then
+            local node = entry.node
+            local have = math.max(0, GetItemCount(node.id, true) or 0)
+            local q = ns.Alchemy.Quote(node.id)
+            local detail = ns.T(have >= node.count and "craftListInputEnough" or "craftListInput", node.count, have)
+            if q and q.vendor then detail = detail .. ns.T("cacheVendorRole")
+            elseif q and q.manual then detail = detail .. ns.T("alchemyOwnPrice") end
+            if node.crafted then detail = detail .. ns.T("craftSourceMake") end
+            if node.extra and node.extra > 0 then detail = detail .. ns.T("craftExtra", node.extra) end
+            K.Tooltip(row.expand, ns.T("craftListExpand"), ns.T("craftListExpandTip"))
+            row:SetProps({id = node.id, quote = q, active = false, width = width, depth = node.depth + 1, include = false,
+                expandable = node.expandable, crafted = node.crafted, owner = entry.owner,
+                detail = detail, extraTip = ns.T("craftListInputTip")})
+        elseif entry then
             local q = ns.Markets.Quote(entry.raw)
             local detail = ns.T("craftListDetail", ns.T(entry.recipe.category), entry.recipe.count, K.Money(entry.plan.cost))
             if q then detail = detail .. ns.T("cacheAge", math.max(0, math.floor((time() - q.at) / 60))) end
+            local stock = ns.CraftPlan.Stock(entry.recipe)
+            if stock > 0 then detail = detail .. ns.T("craftListStock", stock) end
+            K.Tooltip(row.expand, ns.T("craftListExpand"), ns.T("craftListExpandTip"))
             row:SetProps({id = entry.raw, quote = q, active = entry.raw == p.recipe, width = width,
-                margin = entry.plan.margin, detail = detail})
+                margin = entry.plan.margin, detail = detail, depth = 0, include = false,
+                expandable = true, crafted = self.open[entry.raw] ~= nil})
         else row.frame:Hide() end
     end
     self.listTitle:SetText(ns.T("craftListTitle", ns.T(catalog.labelKey), #ranked))
@@ -141,6 +181,7 @@ function UI:RenderRecipe(catalog, width)
                 if p.owned then role = role .. ns.T("craftOwnedRow", entry.own, entry.need) end
                 if entry.extra and entry.extra > 0 then role = role .. ns.T("craftExtra", entry.extra) end
             end
+            K.Tooltip(row.expand, ns.T("craftMaterialSource"), ns.T("craftTreeTip"))
             row:SetProps({id = entry.id, quote = q, active = entry.id == p.id,
                 margin = entry.output and plan.margin or nil, subtotal = subtotal, layout = "craft", width = width, detail = role,
                 depth = entry.depth, expandable = entry.expandable, crafted = entry.crafted, excluded = entry.excluded})
@@ -205,8 +246,8 @@ function UI:New(parent)
     end
     self.scroll = K.TableScroll(f, function() self:Render() end, 85, 96, 29)
     for i = 1, 40 do
-        local row = K.MarketRow:New(f, function(id) self:Select(id) end,
-            function(id) self:ToggleMaterial(id) end,
+        local row = K.MarketRow:New(f, function(id, props) self:Select(id, props) end,
+            function(id, props) self:ToggleMaterial(id, props) end,
             function(id, checked) self.ignore[id] = not checked; self:Render() end)
         row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -56 - (i - 1) * 29)
         row.frame:SetHeight(28)
