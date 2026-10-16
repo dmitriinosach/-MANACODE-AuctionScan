@@ -26,6 +26,10 @@ K.theme = {
     quiet = {bg = {0, 0, 0, 0}, hover = {1, 1, 1, 0.04},
         down = {0, 0, 0, 0.25}, edge = {0.18, 0.21, 0.26, 1}},
     off = {0.60, 0.58, 0.54},
+    chart = {grid = {1, 1, 1, 0.07}, axis = {1, 1, 1, 0.20}, cursor = {1, 0.95, 0.75, 0.6},
+        shade = {0, 0, 0, 0.8}, median = {0.72, 0.80, 0.92, 0.55}, minimum = {1, 0.82, 0},
+        quartile = {0.40, 0.85, 0.50}, supply = {0.30, 0.56, 0.80}, added = {0.34, 0.68, 0.46},
+        early = {0.86, 0.62, 0.30}, late = {0.60, 0.60, 0.64}, tile = {0.08, 0.09, 0.11, 1}},
 }
 function K.Label(parent, text, x, y, width, kind)
     local font = kind == "heading" and "GameFontNormal" or "GameFontHighlightSmall"
@@ -201,17 +205,16 @@ function K.TableHeader(parent, y)
     band:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -302, y + 5); band:SetHeight(20)
     return band
 end
-local Inspector = {}
+local Inspector = {mode = "summary", all = {}}
 Inspector.__index = Inspector
 K.Inspector = Inspector
-function Inspector:New(parent, open)
-    local view = setmetatable({}, self)
+function Inspector:New(parent)
+    local view = setmetatable({parent = parent, top = -2}, self)
     local panel = ns.NewFrame("Frame", nil, parent)
     view.frame = panel
-    panel:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -6, -2)
-    panel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -6, 2)
-    panel:SetWidth(264); panel:EnableMouse(true); K.Panel(panel)
-    view.item = K.ItemChoice(panel, open)
+    panel:SetFrameLevel(parent:GetFrameLevel() + 12)
+    panel:EnableMouse(true); K.Panel(panel)
+    view.item = K.ItemChoice(panel, function() Inspector.Switch("market") end)
     view.item.extraTip = ns.T("itemHistoryOpenTip")
     view.item:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -8)
     view.item:SetWidth(180); view.item.text:SetWidth(148)
@@ -231,23 +234,73 @@ function Inspector:New(parent, open)
         view.actions.frame:SetWidth(24); view.actions.frame:SetText("+"); view.actions.frame.arrow:Hide()
         view.actions.frame.text:ClearAllPoints(); view.actions.frame.text:SetPoint("CENTER", view.actions.frame, "CENTER", 0, 0)
         view.actions.frame:SetPoint("RIGHT", view.offers, "LEFT", -6, 0)
-        view.item:SetWidth(150); view.item.text:SetWidth(118)
         K.Tooltip(view.actions.frame, ns.T("collectionActions"), ns.T("collectionActionsTip"))
     end
-    K.Rule(panel, -39)
+    view.tabs = {
+        summary = K.Button(panel, ns.T("inspectorSummary"), 117, function() Inspector.Switch("summary") end, "quiet"),
+        market = K.Button(panel, ns.T("inspectorMarket"), 117, function() Inspector.Switch("market") end, "quiet"),
+    }
+    view.tabs.market:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -38)
+    view.tabs.summary:SetPoint("RIGHT", view.tabs.market, "LEFT", -6, 0)
+    K.Tooltip(view.tabs.summary, ns.T("inspectorSummary"), ns.T("inspectorSummaryTip"))
+    K.Tooltip(view.tabs.market, ns.T("inspectorMarket"), ns.T("inspectorMarketTip"))
+    K.Rule(panel, -66)
+    view.body = ns.NewFrame("Frame", nil, panel)
+    view.body:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -26)
+    view.body:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
+    panel:HookScript("OnShow", function() view:Layout() end)
+    Inspector.all[#Inspector.all + 1] = view
+    view:Layout()
     return view
+end
+function Inspector.Switch(mode)
+    Inspector.mode = mode == "market" and "market" or "summary"
+    for _, view in ipairs(Inspector.all) do view:Layout() end
+end
+function Inspector:Place(top)
+    if self.top == top then return end
+    self.top = top; self:Layout()
+end
+function Inspector:Layout()
+    local panel, market = self.frame, Inspector.mode == "market"
+    panel:ClearAllPoints()
+    panel:SetPoint("TOPRIGHT", self.parent, "TOPRIGHT", -6, self.top)
+    panel:SetPoint("BOTTOMRIGHT", self.parent, "BOTTOMRIGHT", -6, 2)
+    local item = market and 300 or (self.actions and 150 or 180)
+    self.item:SetWidth(item); self.item.text:SetWidth(item - 32)
+    self.tabs.summary:SetActive(not market); self.tabs.market:SetActive(market)
+    if market then
+        panel:SetPoint("TOPLEFT", self.parent, "TOPLEFT", 6, self.top)
+        self.body:Hide()
+    else
+        panel:SetWidth(264); self.body:Show()
+    end
+    local id = self.props and self.props.id
+    if market and id and panel:IsVisible() then
+        self.board = self.board or ns.MarketBoardUI:New(panel)
+        self.board:SetProps({id = id})
+    elseif self.board then self.board.frame:Hide() end
 end
 function Inspector:SetProps(props)
     self.props = props; self:Render()
 end
+function Inspector:Clear()
+    self.props = nil
+    self.item:Hide(); self.offers:Hide()
+    if self.actions then self.actions.frame:Hide() end
+    self:Layout()
+end
 function Inspector:Render()
     K.SetItemChoice(self.item, self.props.id, self.props.active)
+    self.offers:Show()
     if self.actions then
+        self.actions.frame:Show()
         local C, id = ns.Collections, self.props.id
         self.actions.buttons[1].text:SetText(ns.T(C.Favorite(id) and "collectionUnfavorite" or "collectionFavorite"))
         self.actions.buttons[2].text:SetText(ns.T(C.Tracked(id) and "collectionUntrack" or "collectionTrack"))
         if C.CanFavorite(id) then self.actions.buttons[1]:Enable() else self.actions.buttons[1]:Disable() end
     end
+    self:Layout()
 end
 function K.Selector(b)
     b:SetBackdrop(K.theme.buttonSkin)
@@ -356,18 +409,68 @@ end
 function K.ListCapacity(frame, top, bottom, rowHeight, maximum)
     return math.max(1, math.min(maximum, math.floor(((frame:GetHeight() or 510) - top - bottom) / rowHeight)))
 end
-function K.ResizeGrip(parent, start, finish)
+local function cursor(parent)
+    local x, y = GetCursorPosition()
+    local scale = parent:GetEffectiveScale() or 1
+    return x / scale, y / scale
+end
+local function clamp(value, low, high)
+    return math.max(low, math.min(high, math.floor(value + 0.5)))
+end
+function K.ResizeGrip(parent, limits, allowed, apply)
+    local outline = ns.NewFrame("Frame", nil, parent)
+    outline:SetFrameStrata("DIALOG")
+    outline:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+    outline:SetBackdrop({bgFile = K.theme.white, edgeFile = K.theme.white, edgeSize = 2})
+    outline:SetBackdropColor(K.theme.gold[1], K.theme.gold[2], K.theme.gold[3], 0.08)
+    outline:SetBackdropBorderColor(K.theme.gold[1], K.theme.gold[2], K.theme.gold[3], 0.9)
+    outline.size = outline:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    outline.size:SetPoint("BOTTOMRIGHT", outline, "BOTTOMRIGHT", -28, 14)
+    outline:Hide()
+    local function measure()
+        local x, y = cursor(parent)
+        return clamp(outline.width0 + x - outline.x0, limits[1], limits[3]),
+            clamp(outline.height0 + outline.y0 - y, limits[2], limits[4])
+    end
+    local function follow(self)
+        local width, height = measure()
+        if width == self.width and height == self.height then return end
+        self.width, self.height = width, height
+        self:SetWidth(width); self:SetHeight(height)
+        self.size:SetFormattedText("%d x %d", width, height)
+    end
+    local function stop()
+        outline.active = false
+        outline:SetScript("OnUpdate", nil)
+        outline:Hide()
+    end
     local grip = ns.NewFrame("Button", nil, parent)
-    grip:SetWidth(18); grip:SetHeight(18)
-    grip:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -2, -1)
+    grip:SetWidth(16); grip:SetHeight(16)
+    grip:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -4, 2)
     grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
     grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
     grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
     grip:SetFrameLevel(parent:GetFrameLevel() + 30)
-    grip:SetScript("OnMouseDown", function(_, button) if button == "LeftButton" then start() end end)
-    grip:SetScript("OnMouseUp", finish)
-    grip:SetScript("OnHide", finish)
+    grip:SetScript("OnMouseDown", function(_, button)
+        if button ~= "LeftButton" or not allowed() then return end
+        outline.x0, outline.y0 = cursor(parent)
+        outline.width0, outline.height0 = parent:GetWidth(), parent:GetHeight()
+        outline.width, outline.height = nil, nil
+        outline.active = true
+        follow(outline)
+        outline:SetScript("OnUpdate", follow)
+        outline:Show()
+        GameTooltip:Hide()
+    end)
+    grip:SetScript("OnMouseUp", function()
+        if not outline.active then return end
+        local width, height = measure()
+        stop()
+        apply(width, height)
+    end)
+    grip:SetScript("OnHide", stop)
     K.Tooltip(grip, ns.T("windowResize"), ns.T("windowResizeTip"))
+    grip.outline = outline
     return grip
 end
 function K.AuctionArt(parent)
@@ -723,4 +826,365 @@ function Chart:Render()
             and ns.T("historyVolumePoint", p.price, p.quartile) or ns.T("familyPoint", K.Money(p.price), K.Money(p.quartile)))
         dot:Show()
     end
+end
+local Tile = {}
+Tile.__index = Tile
+K.StatTile = Tile
+function Tile:New(parent)
+    local tile = setmetatable({}, self)
+    local f = ns.NewFrame("Frame", nil, parent)
+    tile.frame = f
+    f:SetHeight(54); f:EnableMouse(true)
+    f:SetBackdrop(K.theme.buttonSkin)
+    f:SetBackdropColor(unpack(K.theme.chart.tile))
+    f:SetBackdropBorderColor(unpack(K.theme.quiet.edge))
+    tile.accent = f:CreateTexture(nil, "ARTWORK")
+    tile.accent:SetTexture(K.theme.white); tile.accent:SetWidth(2)
+    tile.accent:SetPoint("TOPLEFT", f, "TOPLEFT", 4, -6)
+    tile.accent:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 4, 6)
+    tile.title = K.Label(f, "", 11, -7, 120); tile.title:SetHeight(12)
+    tile.title:SetTextColor(unpack(K.theme.secondary))
+    tile.value = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    tile.value:SetPoint("TOPLEFT", f, "TOPLEFT", 11, -21); tile.value:SetHeight(16)
+    tile.value:SetJustifyH("LEFT")
+    tile.note = K.Label(f, "", 11, -39, 120); tile.note:SetHeight(12)
+    return tile
+end
+function Tile:SetProps(props)
+    self.props = props; self:Render()
+end
+function Tile:Render()
+    local p = self.props
+    local inner = math.max(40, (p.width or 140) - 16)
+    self.frame:SetWidth(p.width or 140)
+    self.title:SetWidth(inner); self.value:SetWidth(inner); self.note:SetWidth(inner)
+    self.title:SetText(p.title); self.value:SetText(p.value); self.note:SetText(p.note or "")
+    self.note:SetTextColor(unpack(K.theme[p.tone or "secondary"]))
+    self.accent:SetVertexColor(unpack(p.accent or K.theme.gold))
+    K.Tooltip(self.frame, p.title, p.tip or "")
+end
+local TimeChart = {}
+TimeChart.__index = TimeChart
+K.TimeChart = TimeChart
+local timeSteps = {3600, 7200, 10800, 21600, 43200, 86400, 172800, 259200, 432000, 604800, 1209600}
+local function niceStep(value)
+    if value <= 0 then return 1 end
+    local power = 10 ^ math.floor(math.log(value) / math.log(10) + 1e-9)
+    for _, m in ipairs({1, 2, 5, 10}) do
+        if value <= m * power * (1 + 1e-9) then return m * power end
+    end
+    return 10 * power
+end
+local function zone()
+    local now = time()
+    local here, utc = date("*t", now), date("!*t", now)
+    if type(here) ~= "table" or type(utc) ~= "table" then return 0 end
+    local shift = (here.hour - utc.hour) * 3600 + (here.min - utc.min) * 60
+    if here.yday ~= utc.yday then
+        shift = shift + ((here.year > utc.year or (here.year == utc.year and here.yday > utc.yday)) and 86400 or -86400)
+    end
+    return shift
+end
+function TimeChart:New(parent)
+    local chart = setmetatable({texts = {}, textUsed = 0, dots = {},
+        pools = {BACKGROUND = {used = 0}, BORDER = {used = 0}, ARTWORK = {used = 0}}}, self)
+    local f = ns.NewFrame("Frame", nil, parent)
+    chart.frame = f
+    f:EnableMouse(true)
+    local overlay = ns.NewFrame("Frame", nil, f)
+    chart.overlay = overlay
+    overlay:SetAllPoints(f); overlay:SetFrameLevel(f:GetFrameLevel() + 5)
+    chart.cursor = overlay:CreateTexture(nil, "ARTWORK")
+    chart.cursor:SetTexture(K.theme.white); chart.cursor:SetVertexColor(unpack(K.theme.chart.cursor))
+    chart.cursor:SetWidth(1)
+    chart.stamp = overlay:CreateTexture(nil, "ARTWORK")
+    chart.stamp:SetTexture(K.theme.white); chart.stamp:SetVertexColor(unpack(K.theme.chart.shade))
+    chart.stamp:SetWidth(84); chart.stamp:SetHeight(14)
+    chart.stampText = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    chart.stampText:SetPoint("CENTER", chart.stamp, "CENTER", 0, 0)
+    chart.anchor = ns.NewFrame("Frame", nil, overlay)
+    chart.anchor:SetWidth(1); chart.anchor:SetHeight(1)
+    chart.empty = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    chart.empty:SetPoint("CENTER", f, "CENTER", 0, 0); chart.empty:SetWidth(320)
+    chart.empty:SetTextColor(unpack(K.theme.secondary))
+    f:SetScript("OnEnter", function() f:SetScript("OnUpdate", function() chart:Hover() end) end)
+    f:SetScript("OnLeave", function() f:SetScript("OnUpdate", nil); chart:Unhover() end)
+    f:SetScript("OnSizeChanged", function() if chart.props then chart:Render() end end)
+    chart:Unhover()
+    return chart
+end
+function TimeChart:SetProps(props)
+    self.props = props; self:Render()
+end
+function TimeChart:Rect(layer, color, x, y, w, h, alpha)
+    local pool = self.pools[layer]
+    pool.used = pool.used + 1
+    local t = pool[pool.used]
+    if not t then
+        t = self.frame:CreateTexture(nil, layer); t:SetTexture(K.theme.white)
+        pool[pool.used] = t
+    end
+    t:ClearAllPoints(); t:SetPoint("TOPLEFT", self.frame, "TOPLEFT", x, -y)
+    t:SetWidth(math.max(1, w)); t:SetHeight(math.max(1, h))
+    t:SetVertexColor(color[1], color[2], color[3], (color[4] or 1) * (alpha or 1))
+    t:Show()
+    return t
+end
+function TimeChart:Text(text, x, y, width, justify, color)
+    self.textUsed = self.textUsed + 1
+    local fs = self.texts[self.textUsed]
+    if not fs then
+        fs = self.frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        self.texts[self.textUsed] = fs
+    end
+    fs:ClearAllPoints(); fs:SetPoint("TOPLEFT", self.frame, "TOPLEFT", x, -y)
+    fs:SetWidth(width); fs:SetHeight(12); fs:SetJustifyH(justify or "LEFT")
+    fs:SetTextColor(unpack(color or K.theme.secondary)); fs:SetText(text); fs:Show()
+    return fs
+end
+function TimeChart:Render()
+    local p = self.props
+    for _, pool in pairs(self.pools) do
+        for i = 1, pool.used do pool[i]:Hide() end
+        pool.used = 0
+    end
+    for i = 1, self.textUsed do self.texts[i]:Hide() end
+    self.textUsed, self.layout = 0, nil
+    self:Unhover()
+    local width, height = self.frame:GetWidth() or 0, self.frame:GetHeight() or 0
+    self.empty:SetText(p.empty or "")
+    if p.empty or width < 160 or height < 90 then return end
+    local gutter, plot = 72, width - 80
+    local count = math.max(8, math.min(120, math.floor(plot / 7)))
+    local layout = {gutter = gutter, plot = plot, count = count, slot = plot / count,
+        buckets = p.buckets(count), boxes = {}, span = math.max(1, p.to - p.from)}
+    self.layout = layout
+    local total, gap, top = 0, 8, 0
+    for _, track in ipairs(p.tracks) do total = total + track.weight end
+    local available = height - 16 - gap * (#p.tracks - 1)
+    for _, track in ipairs(p.tracks) do
+        local h = math.floor(available * track.weight / total)
+        local box = {track = track, top = top + 16, height = h - 16}
+        layout.boxes[#layout.boxes + 1] = box
+        self:Header(box)
+        if track.kind == "steps" then self:Steps(box) elseif track.kind == "bars" then self:Bars(box) else self:Flow(box) end
+        top = top + h + gap
+    end
+    layout.bottom = top - gap
+    self:Ruler()
+end
+function TimeChart:Header(box)
+    local track, x = box.track, self.layout.gutter
+    local title = self:Text(track.title, x, box.top - 15, 200, "LEFT", K.theme.text)
+    x = x + math.min(200, title:GetStringWidth() or 120) + 14
+    local legend = {}
+    for _, series in ipairs(track.series) do legend[#legend + 1] = series end
+    for _, series in ipairs(track.down or {}) do legend[#legend + 1] = series end
+    if track.median then legend[#legend + 1] = {color = K.theme.chart.median, legend = track.medianLegend} end
+    for _, series in ipairs(legend) do
+        if series.legend then
+            self:Rect("ARTWORK", series.color, x, box.top - 12, 8, 8)
+            local label = self:Text(series.legend, x + 11, box.top - 15, 140)
+            x = x + 25 + math.min(140, label:GetStringWidth() or 80)
+        end
+    end
+end
+function TimeChart:Grid(box, low, high, step)
+    local layout = self.layout
+    local value = low
+    while value <= high + step * 0.001 do
+        local y = box.scale(value)
+        self:Rect("BACKGROUND", K.theme.chart.grid, layout.gutter, y, layout.plot, 1)
+        self:Text(box.track.format(value), 0, y - 6, layout.gutter - 8, "RIGHT")
+        value = value + step
+    end
+    self:Rect("BACKGROUND", K.theme.chart.axis, layout.gutter - 1, box.top, 1, box.height)
+end
+function TimeChart:Center(i)
+    return self.layout.gutter + (i - 0.5) * self.layout.slot
+end
+function TimeChart:Steps(box)
+    local layout, track = self.layout, box.track
+    local low, high
+    for i = 1, layout.count do
+        local b = layout.buckets[i]
+        for _, series in ipairs(b and track.series or {}) do
+            local v = b[series.field]
+            if v then low, high = math.min(low or v, v), math.max(high or v, v) end
+        end
+    end
+    if not low then return end
+    if high - low < math.max(1, high * 0.02) then low, high = low * 0.95, high * 1.05 + 1 end
+    local step = niceStep((high - low) / 3)
+    low, high = math.floor(low / step) * step, math.ceil(high / step) * step
+    local base = box.top + box.height
+    box.scale = function(v) return base - (v - low) / math.max(1, high - low) * box.height end
+    self:Grid(box, low, high, step)
+    if track.median then
+        self:Rect("BORDER", K.theme.chart.median, layout.gutter, box.scale(track.median), layout.plot, 1)
+    end
+    local limit = math.max(1, math.ceil(43200 / (layout.span / layout.count)))
+    for _, series in ipairs(track.series) do
+        local thick, last, lastValue = series.thick or 2, nil, nil
+        local function hold(index, x1, value, dim)
+            local x0, y = self:Center(index), box.scale(value)
+            if series.area then self:Rect("BORDER", series.color, x0, y, x1 - x0, base - y, dim and 0.05 or 0.13) end
+            self:Rect("ARTWORK", series.color, x0, y - thick / 2, x1 - x0 + thick / 2, thick, dim and 0.35 or 1)
+        end
+        for i = 1, layout.count do
+            local b = layout.buckets[i]
+            local value = b and b[series.field]
+            if value then
+                if last then
+                    local x, y0, y1 = self:Center(i), box.scale(lastValue), box.scale(value)
+                    local dim = i - last > limit
+                    hold(last, x, lastValue, dim)
+                    self:Rect("ARTWORK", series.color, x - thick / 2, math.min(y0, y1) - thick / 2, thick,
+                        math.abs(y1 - y0) + thick, dim and 0.35 or 1)
+                end
+                if series.dots and layout.slot >= 4 then
+                    self:Rect("ARTWORK", series.color, self:Center(i) - 2, box.scale(value) - 2, 4, 4)
+                end
+                last, lastValue = i, value
+            end
+        end
+        if last then hold(last, layout.gutter + layout.plot, lastValue, true) end
+    end
+end
+function TimeChart:Bars(box)
+    local layout, series = self.layout, box.track.series[1]
+    local high = 0
+    for i = 1, layout.count do
+        local b = layout.buckets[i]
+        if b and b[series.field] then high = math.max(high, b[series.field]) end
+    end
+    local step = niceStep(math.max(1, high) / 2)
+    high = math.max(step, math.ceil(high / step) * step)
+    local base = box.top + box.height
+    box.scale = function(v) return base - v / high * box.height end
+    self:Grid(box, 0, high, step)
+    local width = math.max(1, math.min(12, layout.slot - 1))
+    for i = 1, layout.count do
+        local b = layout.buckets[i]
+        local v = b and b[series.field]
+        if v then
+            local h = math.max(1, v / high * box.height)
+            self:Rect("ARTWORK", series.color, self:Center(i) - width / 2, base - h, width, h, v > 0 and 0.85 or 0.35)
+        end
+    end
+end
+function TimeChart:Flow(box)
+    local layout, track = self.layout, box.track
+    local high = 0
+    for i = 1, layout.count do
+        local b = layout.buckets[i]
+        if b and b.compared > 0 then
+            local up, down = 0, 0
+            for _, series in ipairs(track.series) do up = up + b[series.field] end
+            for _, series in ipairs(track.down) do down = down + b[series.field] end
+            high = math.max(high, up, down)
+        end
+    end
+    local step = niceStep(math.max(1, high))
+    high = math.max(step, math.ceil(high / step) * step)
+    local middle, half = box.top + box.height / 2, box.height / 2
+    box.scale = function(v) return middle - v / high * half end
+    self:Grid(box, -high, high, high)
+    self:Rect("BORDER", K.theme.chart.axis, layout.gutter, middle, layout.plot, 1)
+    local width = math.max(1, math.min(12, layout.slot - 1))
+    for i = 1, layout.count do
+        local b = layout.buckets[i]
+        if b and b.compared > 0 then
+            local x, y, moved = self:Center(i) - width / 2, middle, false
+            for _, series in ipairs(track.series) do
+                local h = b[series.field] / high * half
+                if h > 0 then y, moved = y - h, true; self:Rect("ARTWORK", series.color, x, y, width, h, 0.9) end
+            end
+            y = middle + 1
+            for _, series in ipairs(track.down) do
+                local h = b[series.field] / high * half
+                if h > 0 then moved = true; self:Rect("ARTWORK", series.color, x, y, width, h, 0.9); y = y + h end
+            end
+            if not moved then self:Rect("ARTWORK", K.theme.chart.late, x, middle - 1, width, 3, 0.5) end
+        end
+    end
+end
+function TimeChart:Ruler()
+    local layout, p = self.layout, self.props
+    local slots = math.max(2, math.floor(layout.plot / 72))
+    local step = timeSteps[#timeSteps]
+    for _, value in ipairs(timeSteps) do
+        if layout.span / value <= slots then step = value; break end
+    end
+    local shift = zone()
+    local t = math.ceil((p.from + shift) / step) * step - shift
+    while t <= p.to do
+        local x = layout.gutter + (t - p.from) / layout.span * layout.plot
+        self:Rect("BACKGROUND", K.theme.chart.grid, x, 0, 1, layout.bottom)
+        local midnight = (t + shift) % 86400 == 0
+        self:Text(date((step < 86400 and not midnight) and "%H:%M" or "%d.%m", t), x - 30, layout.bottom + 4, 60, "CENTER")
+        t = t + step
+    end
+end
+function TimeChart:Hover()
+    local layout = self.layout
+    if not layout then return end
+    local cursor = GetCursorPosition()
+    local x = cursor / (self.frame:GetEffectiveScale() or 1) - (self.frame:GetLeft() or 0)
+    local index = math.floor((x - layout.gutter) / layout.slot) + 1
+    if index < 1 or index > layout.count then self:Unhover(); return end
+    local found
+    for d = 0, layout.count do
+        if layout.buckets[index - d] then found = index - d; break end
+        if layout.buckets[index + d] then found = index + d; break end
+    end
+    if not found then self:Unhover(); return end
+    if found == self.hovered then return end
+    self.hovered = found
+    local bucket, cx = layout.buckets[found], self:Center(found)
+    self.cursor:ClearAllPoints()
+    self.cursor:SetPoint("TOPLEFT", self.frame, "TOPLEFT", cx, 0)
+    self.cursor:SetHeight(math.max(1, layout.bottom)); self.cursor:Show()
+    self.stamp:ClearAllPoints()
+    self.stamp:SetPoint("TOP", self.frame, "TOPLEFT", math.max(42, math.min(layout.gutter + layout.plot - 42, cx)),
+        -layout.bottom - 2)
+    self.stampText:SetText(date("%d.%m %H:%M", bucket.at)); self.stamp:Show(); self.stampText:Show()
+    local used = 0
+    for _, box in ipairs(layout.boxes) do
+        for _, series in ipairs(box.track.kind == "steps" and box.scale and box.track.series or {}) do
+            local value = bucket[series.field]
+            if value then
+                used = used + 1
+                local dot = self.dots[used]
+                if not dot then
+                    dot = self.overlay:CreateTexture(nil, "OVERLAY"); dot:SetTexture(K.theme.white)
+                    dot:SetWidth(7); dot:SetHeight(7); self.dots[used] = dot
+                end
+                dot:SetVertexColor(unpack(series.color))
+                dot:ClearAllPoints(); dot:SetPoint("CENTER", self.frame, "TOPLEFT", cx, -box.scale(value)); dot:Show()
+            end
+        end
+    end
+    for i = used + 1, #self.dots do self.dots[i]:Hide() end
+    local first = layout.boxes[1]
+    self.anchor:ClearAllPoints(); self.anchor:SetPoint("TOPLEFT", self.frame, "TOPLEFT", cx, -(first and first.top or 0))
+    GameTooltip:SetOwner(self.anchor, "ANCHOR_NONE")
+    if cx > layout.gutter + layout.plot * 0.6 then GameTooltip:SetPoint("TOPRIGHT", self.anchor, "TOPLEFT", -14, 0)
+    else GameTooltip:SetPoint("TOPLEFT", self.anchor, "TOPRIGHT", 14, 0) end
+    local title, lines = self.props.tip(bucket)
+    GameTooltip:AddLine(title, unpack(K.theme.gold))
+    local secondary = K.theme.secondary
+    for _, line in ipairs(lines) do
+        local color = line[3] or K.theme.text
+        if line[2] then
+            GameTooltip:AddDoubleLine(line[1], line[2], secondary[1], secondary[2], secondary[3], color[1], color[2], color[3])
+        else GameTooltip:AddLine(line[1], color[1], color[2], color[3], true) end
+    end
+    GameTooltip:Show()
+end
+function TimeChart:Unhover()
+    self.hovered = nil
+    self.cursor:Hide(); self.stamp:Hide(); self.stampText:Hide()
+    for _, dot in ipairs(self.dots) do dot:Hide() end
+    if GameTooltip:IsOwned(self.anchor) then GameTooltip:Hide() end
 end

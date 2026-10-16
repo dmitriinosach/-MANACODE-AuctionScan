@@ -8,7 +8,7 @@ function UI.Ready()
         and ns.Family and ns.FamilyUI and ns.gemFamilies and ns.gemByRaw and ns.gemByItem
         and ns.Alchemy and ns.AlchemyUI and ns.Batch and ns.alchemyRecipes
         and ns.Reagents and ns.ReagentsUI and ns.Resale and ns.ResaleUI and ns.CraftPlan and ns.AuctionWindow
-        and ns.Activity and ns.Disenchant and ns.DisenchantUI and ns.ItemHistoryUI
+        and ns.Activity and ns.Disenchant and ns.DisenchantUI and ns.MarketBoardUI
         and ns.Collections and ns.CollectionsUI and ns.seasonalEvents and ns.OfferPreview then return true end
     if not UI.warned then
         UI.warned = true
@@ -22,6 +22,7 @@ function UI:SetProps(props)
 end
 function UI.Status(text)
     if UI.status then UI.status:SetText(text) end
+    if ns.MarketBoardUI then ns.MarketBoardUI.Status(text) end
     if ns.FamilyUI then ns.FamilyUI:Controls() end
     if ns.AlchemyUI and ns.AlchemyUI.status then
         ns.AlchemyUI.status:SetText(text)
@@ -85,6 +86,13 @@ function UI.SetProfessionMode(profession, mode)
     ns.Batch.Stop()
     UI.professionModes[profession] = mode
     UI:ShowSection(profession)
+    if mode == "craft" and ns.craftCatalogs[profession] then ns.AlchemyUI:SetProps({view = "list"}) end
+end
+function UI.OpenProfession(profession)
+    UI:ShowSection(profession)
+    if UI.professionModes[profession] ~= "resale" and ns.craftCatalogs[profession] then
+        ns.AlchemyUI:SetProps({view = "list"})
+    end
 end
 function UI.OpenRecipe(profession, id, fee)
     local catalog = ns.craftCatalogs[profession]
@@ -112,7 +120,6 @@ function UI:Render()
     if ns.ResaleUI then ns.ResaleUI:Render() end
     if ns.DisenchantUI then ns.DisenchantUI:Render() end
     if ns.CollectionsUI then ns.CollectionsUI:Render() end
-    if ns.ItemHistoryUI and ns.ItemHistoryUI.frame and ns.ItemHistoryUI.frame:IsShown() then ns.ItemHistoryUI:Render() end
     if ns.OfferPreview and ns.OfferPreview.frame and ns.OfferPreview.frame:IsShown() then ns.OfferPreview:Render() end
 end
 function UI:New(parent)
@@ -143,7 +150,7 @@ function UI:New(parent)
     for _, key in ipairs(ns.Crafting.order) do
         if ns.craftCatalogs[key] then professions[#professions + 1] = {key = key, labelKey = ns.craftCatalogs[key].labelKey} end
     end
-    self.professionMenu = K.Menu(root, professions, function(key) self:ShowSection(key) end)
+    self.professionMenu = K.Menu(root, professions, UI.OpenProfession)
     self.professionMenu.frame:SetPoint("LEFT", purchase, "RIGHT", 6, 0)
     local reagentTab = K.Button(root, ns.T("reagentsSection"), 100, function() self:ShowSection("reagents") end, "quiet")
     self.nav.reagents = reagentTab
@@ -169,7 +176,6 @@ function UI:New(parent)
     self.resale = ns.ResaleUI:New(content).frame
     self.disenchant = ns.DisenchantUI:New(content).frame
     self.collections = ns.CollectionsUI:New(content).frame
-    ns.ItemHistoryUI.New(root)
     ns.OfferPreview.New(root)
     self.tab = ns.AuctionPage.Install(root)
     self:ShowSection("buy")

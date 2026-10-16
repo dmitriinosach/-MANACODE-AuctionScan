@@ -57,7 +57,7 @@ function UI:Render()
         date("%d.%m %H:%M", activity.at), activity.oldUnits, activity.units,
         activity.added, activity.addedUnits, activity.gone, activity.goneUnits,
         activity.beforeExpiry, activity.expiryPossible) or ns.T("marketActivityMissing"))
-    if (self.history:GetHeight() or 510) >= 452 then self.activity:Show() else self.activity:Hide() end
+    if (self.history:GetHeight() or 484) >= 426 then self.activity:Show() else self.activity:Hide() end
     self.recipe:SetText(ns.Family.Recipe(p.id))
     self:Controls()
     for days, button in pairs(self.periods) do
@@ -123,8 +123,8 @@ function UI:New(parent)
         self:Controls()
     end)
     self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
-    self.inspector = K.Inspector:New(f, function() ns.ItemHistoryUI.Open(self.props.id) end)
-    local h = self.inspector.frame
+    self.inspector = K.Inspector:New(f)
+    local h = self.inspector.body
     self.historyItem = self.inspector.item
     self.history = h
     self.periods = {}
@@ -141,7 +141,7 @@ function UI:New(parent)
     self.stats:SetJustifyV("TOP")
     self.activity = K.Label(h, "", 12, -290, 240)
     self.activity:SetHeight(112); self.activity:SetJustifyV("TOP")
-    self.recipe = K.Label(h, "", 40, -28, 212)
+    self.recipe = K.Label(self.inspector.frame, "", 40, -28, 212)
     self.recipe:SetHeight(10)
     self.recipe:SetTextColor(unpack(K.theme.secondary))
     self.scenario = K.Label(h, "", 0, 0, 240)
@@ -149,7 +149,7 @@ function UI:New(parent)
     self.scenario:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", 12, 10)
     self.scenario:SetHeight(32)
     self.scenario:SetJustifyV("BOTTOM")
-    K.Tooltip(h, ns.T("familyHistory"), ns.T("familyHistoryTip") .. "\n\n" .. ns.T("marketActivityTip"))
+    K.Tooltip(self.inspector.frame, ns.T("familyHistory"), ns.T("familyHistoryTip") .. "\n\n" .. ns.T("marketActivityTip"))
     f:SetScript("OnSizeChanged", function() self:Render() end)
     self:Render()
     return self

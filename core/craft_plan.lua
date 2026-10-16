@@ -57,6 +57,20 @@ function P.Build(recipe, options)
     end
     return result
 end
+function P.Rank(recipes, options)
+    local ranked = {}
+    for _, recipe in ipairs(recipes) do
+        ranked[#ranked + 1] = {raw = recipe.raw, recipe = recipe, plan = P.Build(recipe, options)}
+    end
+    table.sort(ranked, function(a, b)
+        local left, right = a.plan.margin, b.plan.margin
+        if left == right then return ns.Markets.Name(a.raw) < ns.Markets.Name(b.raw) end
+        if left == nil then return false end
+        if right == nil then return true end
+        return left > right
+    end)
+    return ns.Collections and ns.Collections.Order(ranked) or ranked
+end
 function P.Targets(recipe, options)
     local ids, seen = {recipe.raw}, {[recipe.raw] = true}
     if options then

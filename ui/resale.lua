@@ -112,8 +112,8 @@ function UI:New(parent)
         self:Controls()
     end)
     self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
-    self.inspector = K.Inspector:New(f, function() ns.ItemHistoryUI.Open(self.props.id) end)
-    local panel = self.inspector.frame
+    self.inspector = K.Inspector:New(f)
+    local panel = self.inspector.body
     self.selection = self.inspector.item
     self.summary = K.Label(panel, "", 12, -48, 240)
     self.summary:SetHeight(100); self.summary:SetJustifyV("TOP")

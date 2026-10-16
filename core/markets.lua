@@ -163,7 +163,7 @@ function M.Remember(scan)
                 price = q.price, units = q.units, lots = lots[id] or {}, scope = q.scope,
                 truncated = #(lots[id] or {}) < (counts[id] or 0)}
             item.observations[scan.id].scanID, item.observations[scan.id].count = scan.id, q.lots
-            if ns.Activity then ns.Activity.Record(id, item.observations[scan.id], scan.realm, scan.faction) end
+            if ns.Activity then ns.Activity.Record(id, item.observations[scan.id], scan.realm, scan.faction, item) end
             local rank = {}
             for i, scanID in ipairs(item.order) do rank[scanID] = i end
             table.sort(item.order, function(a, b)

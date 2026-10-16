@@ -150,9 +150,7 @@ function UI:Render()
     self.scroll.frame:ClearAllPoints()
     self.scroll.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, -top)
     self.scroll.frame:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -280, 56)
-    self.inspector.frame:ClearAllPoints()
-    self.inspector.frame:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -6, -(top - 43))
-    self.inspector.frame:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -6, 2)
+    self.inspector:Place(-(top - 43))
     self.empty:ClearAllPoints(); self.empty:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, -top - 10)
     local offset = self.scroll:SetRange(#rows, visible)
     for _, entry in ipairs(rows) do if entry.id == self.selected then selected = entry end end
@@ -189,13 +187,13 @@ function UI:Render()
         self.summary:SetText(ns.T("deSummary", K.Money(selected.cost), K.Money(estimate.net), K.Money(estimate.margin))
             .. "\n" .. ns.T("deDepositSummary", self.selling.hours, K.Money(estimate.deposit), self.selling.losses, K.Money(estimate.reserve))
             .. "\n\n" .. table.concat(lines, "\n") .. "\n\n" .. ns.T(estimate.fresh and "deFresh" or "deStale"))
-    else self.item:Hide(); self.summary:SetText(ns.T(progress and "deRunningGuide" or "deIntro")) end
+    else self.inspector:Clear(); self.summary:SetText(ns.T(progress and "deRunningGuide" or "deIntro")) end
     self.feeButton:SetText(ns.T("tradeFee", math.floor(self.fee * 100 + 0.5)))
     self.preview = ns.Disenchant.PurchasePlan(self.group, {fee = self.fee, selling = self.selling, percent = self.buyPercent})
     self.buyPreview:SetText(ns.T("deBuyPreview", self.preview.count, K.Money(self.preview.cost)))
     if ns.Disenchant.purchase then self.status:SetText(ns.T("deBuyStage", ns.Disenchant.purchase.index,
         #ns.Disenchant.purchase.plan.items, ns.Buy.state.bought, K.Money(ns.Buy.state.spent))) end
-    self.summary:SetHeight(math.max(60, (self.inspector.frame:GetHeight() or 400) - 94))
+    self.summary:SetHeight(math.max(60, (self.inspector.body:GetHeight() or 374) - 94))
     self:Controls()
 end
 function UI:New(parent)
@@ -271,8 +269,8 @@ function UI:New(parent)
     self.stop:SetPoint("RIGHT", self.buy, "LEFT", -6, 0)
     self.resume = K.Button(f, ns.T("tradeResume"), 92, function() ns.Scan.Start("pages"); self:Controls() end)
     self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
-    self.inspector = K.Inspector:New(f, function() if self.selected then ns.ItemHistoryUI.Open(self.selected) end end)
-    local panel = self.inspector.frame
+    self.inspector = K.Inspector:New(f)
+    local panel = self.inspector.body
     self.item = self.inspector.item
     self.summary = K.Label(panel, "", 12, -46, 240)
     self.summary:SetHeight(300); self.summary:SetJustifyV("TOP")

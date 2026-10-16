@@ -1,7 +1,9 @@
 local _, ns = ...
-local UI = {props = {profession = "alchemy", recipe = 46376, id = 46376, fee = 0.05, page = 1}, rows = {}, make = {}, ignore = {}}
+local UI = {props = {profession = "alchemy", recipe = 46376, id = 46376, fee = 0.05, page = 1, view = "list"},
+    rows = {}, make = {}, ignore = {}}
 ns.AlchemyUI = UI
 function UI:SetProps(props)
+    local view = props.view or (props.recipe and "recipe")
     if props.profession and props.profession ~= self.props.profession then
         ns.Batch.Stop()
         self.props.profession = props.profession
@@ -9,6 +11,7 @@ function UI:SetProps(props)
         self.props.recipe, self.props.id, self.props.page = first, first, 1
         self.make, self.ignore, self.props.craftAll = {}, {}, false
         if self.scroll then self.scroll.offset = 0 end
+        view = view or "list"
     end
     if props.recipe and props.recipe ~= self.props.recipe then
         ns.Batch.Stop()
@@ -16,8 +19,16 @@ function UI:SetProps(props)
         if self.scroll then self.scroll.offset = 0 end
         self.make, self.ignore, self.props.craftAll = {}, {}, false
     end
+    if view and view ~= self.props.view then
+        if self.scroll then self.scroll.offset = 0 end
+        if view == "recipe" then self.props.id = props.recipe or self.props.recipe end
+    end
     for key, value in pairs(props) do self.props[key] = value end
+    self.props.view = view or self.props.view
     self:Render()
+end
+function UI:Select(id)
+    if self.props.view == "list" then self:SetProps({recipe = id}) else self:SetProps({id = id}) end
 end
 function UI:ToggleMaterial(id)
     local current = self.make[id]
@@ -27,11 +38,12 @@ function UI:ToggleMaterial(id)
 end
 function UI:Controls()
     if not self.frame then return end
-    local phase = ns.Scan.state.phase
+    local phase, list = ns.Scan.state.phase, self.props.view == "list"
     if phase == "idle" then
         self.stop:Hide()
-        if ns.vendorPrices[self.props.id] then self.update:Hide() else self.update:Show() end
+        if list or ns.vendorPrices[self.props.id] then self.update:Hide() else self.update:Show() end
     else self.stop:Show(); self.update:Hide() end
+    if list then self.buy:Hide() else self.buy:Show() end
     if ns.vendorPrices[self.props.id] then self.buy:Disable() else self.buy:Enable() end
     if phase == "paused" then self.resume:Show() else self.resume:Hide() end
     if phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
@@ -48,15 +60,64 @@ end
 function UI:Render()
     if not self.frame then return end
     local K, p = ns.TradeKit, self.props
+    local list = p.view == "list"
     local catalog = ns.craftCatalogs[p.profession]
-    local recipe = catalog.byItem[p.recipe]
     local width = (self.frame:GetWidth() or 996) - 310
-    local columns = K.MarketColumns(width, "craft")
+    local columns = K.MarketColumns(width, not list and "craft" or nil)
     for key, label in pairs(self.headers) do
-        label:ClearAllPoints()
-        label:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10 + columns[key][1], -38)
-        label:SetWidth(columns[key][2])
+        if columns[key] then
+            label:ClearAllPoints()
+            label:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10 + columns[key][1], -38)
+            label:SetWidth(columns[key][2]); label:Show()
+        else label:Hide() end
     end
+    self.headers.item:SetText(ns.T(list and "craftListRecipes" or "alchemyItem"))
+    for _, frame in ipairs({self.picker.frame, self.back, self.materials}) do
+        if list then frame:Hide() else frame:Show() end
+    end
+    if list then self.listTitle:Show() else self.listTitle:Hide() end
+    self.scan:SetText(ns.T(list and "craftListScan" or "scanSelection"))
+    K.Tooltip(self.scan, ns.T(list and "craftListScan" or "scanSelection"),
+        ns.T(list and "craftListScanTip" or "scanRecipeSelectionTip"))
+    self.owned:SetText(ns.T(p.owned and "craftOwnedYes" or "craftOwnedNo"))
+    self.fee:SetText(ns.T("tradeFee", math.floor(p.fee * 100 + 0.5)))
+    if list then self:RenderList(catalog, width) else self:RenderRecipe(catalog, width) end
+    self:Controls()
+end
+function UI:RenderList(catalog, width)
+    local K, p = ns.TradeKit, self.props
+    local ranked = ns.CraftPlan.Rank(catalog.recipes, {owned = p.owned, fee = p.fee})
+    self.ranked = ranked
+    local priced, profitable = 0, 0
+    for _, entry in ipairs(ranked) do
+        if entry.plan.margin then
+            priced = priced + 1
+            if entry.plan.margin > 0 then profitable = profitable + 1 end
+        end
+    end
+    local visible = K.ListCapacity(self.frame, 56, 96, 29, #self.rows)
+    local offset = self.scroll:SetRange(#ranked, visible)
+    for i, row in ipairs(self.rows) do
+        local entry = i <= visible and ranked[offset + i]
+        if entry then
+            local q = ns.Markets.Quote(entry.raw)
+            local detail = ns.T("craftListDetail", ns.T(entry.recipe.category), entry.recipe.count, K.Money(entry.plan.cost))
+            if q then detail = detail .. ns.T("cacheAge", math.max(0, math.floor((time() - q.at) / 60))) end
+            row:SetProps({id = entry.raw, quote = q, active = entry.raw == p.recipe, width = width,
+                margin = entry.plan.margin, detail = detail})
+        else row.frame:Hide() end
+    end
+    self.listTitle:SetText(ns.T("craftListTitle", ns.T(catalog.labelKey), #ranked))
+    self.inspector:Clear()
+    self.category:SetText(ns.T(catalog.labelKey))
+    self.summary:SetHeight(230); self.summary:SetText(ns.T("craftListSummary", #ranked, priced, profitable))
+    for _, frame in ipairs({self.priceEdit, self.save, self.reset, self.priceLabel, self.priceHint, self.reagent}) do
+        frame:Hide()
+    end
+end
+function UI:RenderRecipe(catalog, width)
+    local K, p = ns.TradeKit, self.props
+    local recipe = catalog.byItem[p.recipe]
     self.picker:SetProps({families = catalog.recipes, raw = p.recipe, headingKey = catalog.labelKey})
     local plan = ns.CraftPlan.Build(recipe, {make = self.make, ignore = self.ignore, craftAll = p.craftAll, owned = p.owned, fee = p.fee})
     self.plan = plan
@@ -91,11 +152,10 @@ function UI:Render()
     if recipe.cooldown then self.category:SetText(self.category:GetText() .. ns.T("craftCooldown")) end
     local buy = ns.CraftPlan.Build(recipe, {ignore = self.ignore, owned = p.owned, fee = p.fee})
     local make = ns.CraftPlan.Build(recipe, {ignore = self.ignore, craftAll = true, owned = p.owned, fee = p.fee})
+    self.summary:SetHeight(124)
     self.summary:SetText(ns.T("craftPlanSummary", recipe.count, K.Money(plan.cost), K.Money(plan.cash),
         K.Money(plan.revenue), K.Money(plan.margin), K.Money(buy.cost), K.Money(make.cost)))
     self.materials:SetText(ns.T(p.craftAll and "craftAllMake" or "craftAllBuy"))
-    self.owned:SetText(ns.T(p.owned and "craftOwnedYes" or "craftOwnedNo"))
-    self.fee:SetText(ns.T("tradeFee", math.floor(p.fee * 100 + 0.5)))
     local vendor = ns.vendorPrices[p.id]
     local editable = ns.Crafting.IsInput(p.id) and not vendor
     for _, frame in ipairs({self.priceEdit, self.save, self.reset, self.priceLabel}) do
@@ -112,7 +172,6 @@ function UI:Render()
         self.priceEdit:SetText(q and q.manual and string.format("%.4f", q.price / 10000) or "")
         self.editID = p.id
     end
-    self:Controls()
 end
 function UI:New(parent)
     local K = ns.TradeKit
@@ -122,14 +181,20 @@ function UI:New(parent)
     self.mode = K.ProfessionModes(f, function() return self.props.profession end, "craft")
     self.picker = K.FamilyPicker:New(f, function(id) self:SetProps({recipe = id}) end)
     self.picker.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 114, -3)
-    self.picker.frame:SetWidth(244); self.picker.frame.text:SetWidth(212)
+    self.picker.frame:SetWidth(170); self.picker.frame.text:SetWidth(138)
+    self.listTitle = K.Label(f, "", 118, -11, 240, "heading")
+    self.back = K.Button(f, ns.T("craftListBack"), 72, function() self:SetProps({view = "list"}) end, "quiet")
+    self.back:SetPoint("LEFT", self.picker.frame, "RIGHT", 4, 0)
+    K.Tooltip(self.back, ns.T("craftListBack"), ns.T("craftListBackTip"))
     self.scan = K.Button(f, ns.T("scanSelection"), 140, function()
-        ns.Crafting.Complete(ns.craftCatalogs[self.props.profession].byItem[self.props.recipe], IsShiftKeyDown(),
-            {make = self.make, ignore = self.ignore, craftAll = self.props.craftAll, owned = self.props.owned, fee = self.props.fee})
+        if self.props.view == "list" then ns.Crafting.CompleteProfession(self.props.profession, IsShiftKeyDown())
+        else
+            ns.Crafting.Complete(ns.craftCatalogs[self.props.profession].byItem[self.props.recipe], IsShiftKeyDown(),
+                {make = self.make, ignore = self.ignore, craftAll = self.props.craftAll, owned = self.props.owned, fee = self.props.fee})
+        end
         self:Render()
     end, "main")
     self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -282, -5)
-    K.Tooltip(self.scan, ns.T("scanSelection"), ns.T("scanRecipeSelectionTip"))
     K.TableHeader(f, -38)
     self.headers = {}
     for _, entry in ipairs({{"item", "alchemyItem"}, {"price", "tradeUnitPrice"},
@@ -140,7 +205,7 @@ function UI:New(parent)
     end
     self.scroll = K.TableScroll(f, function() self:Render() end, 85, 96, 29)
     for i = 1, 40 do
-        local row = K.MarketRow:New(f, function(id) self:SetProps({id = id}) end,
+        local row = K.MarketRow:New(f, function(id) self:Select(id) end,
             function(id) self:ToggleMaterial(id) end,
             function(id, checked) self.ignore[id] = not checked; self:Render() end)
         row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -56 - (i - 1) * 29)
@@ -180,8 +245,8 @@ function UI:New(parent)
         self:Controls()
     end)
     self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
-    self.inspector = K.Inspector:New(f, function() ns.ItemHistoryUI.Open(self.props.id) end)
-    local panel = self.inspector.frame
+    self.inspector = K.Inspector:New(f)
+    local panel = self.inspector.body
     self.selection = self.inspector.item
     self.category = K.Label(panel, "", 12, -48, 240)
     self.category:SetHeight(28); self.category:SetJustifyV("TOP")

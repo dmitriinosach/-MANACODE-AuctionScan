@@ -73,3 +73,10 @@ function A.Complete(recipe, force, options)
     local ids = options and ns.CraftPlan.Targets(recipe, options) or A.Targets(recipe)
     return ns.Batch.Complete(ids, force)
 end
+function A.CompleteProfession(profession, force)
+    local ids = {}
+    for _, recipe in ipairs(ns.craftCatalogs[profession].recipes) do
+        for _, id in ipairs(A.Targets(recipe)) do ids[#ids + 1] = id end
+    end
+    return ns.Batch.Complete(ids, force, true)
+end

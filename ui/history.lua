@@ -1,49 +1,4 @@
 local _, ns = ...
-local H = {days = 7}
-ns.ItemHistoryUI = H
-function H:Render()
-    if not self.frame or not self.id then return end
-    local K = ns.TradeKit
-    K.SetItemChoice(self.item, self.id, true)
-    self.priceChart:SetProps(ns.Activity.History(self.id, self.days))
-    self.volumeChart:SetProps(ns.Activity.History(self.id, self.days, true))
-    local activity = ns.Activity.Recent(self.id)
-    self.activity:SetText(activity and ns.T("marketActivity", date("%d.%m %H:%M", activity.from),
-        date("%d.%m %H:%M", activity.at), activity.oldUnits, activity.units,
-        activity.added, activity.addedUnits, activity.gone, activity.goneUnits,
-        activity.beforeExpiry, activity.expiryPossible) or ns.T("marketActivityMissing"))
-    for days, button in pairs(self.periods) do button:SetActive(days == self.days) end
-end
-function H.Open(id)
-    H.id = id; H.frame:Show(); H:Render()
-end
-function H.New(parent)
-    local K = ns.TradeKit
-    local f = ns.NewFrame("Frame", nil, parent)
-    H.frame = f; f:SetWidth(280); f:SetHeight(570)
-    f:SetPoint("TOPLEFT", parent, "TOPRIGHT", 8, 0)
-    f:SetFrameLevel(parent:GetFrameLevel() + 35); f:SetClampedToScreen(true)
-    f:EnableMouse(true); K.Panel(f)
-    H.item = K.ItemChoice(f, function() end)
-    H.item:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -10); H.item:SetWidth(250); H.item.text:SetWidth(218)
-    H.periods = {}
-    for i, days in ipairs({1, 7, 30}) do
-        local button = K.Button(f, ns.T("familyDays", days), 76, function() H.days = days; H:Render() end)
-        button:SetPoint("TOPLEFT", f, "TOPLEFT", 12 + (i - 1) * 82, -42)
-        H.periods[days] = button
-    end
-    K.Label(f, ns.T("historyPrice"), 12, -72, 240, "heading")
-    H.priceChart = K.PriceChart:New(f); H.priceChart.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -90)
-    K.Label(f, ns.T("historyVolume"), 12, -228, 240, "heading")
-    H.volumeChart = K.PriceChart:New(f); H.volumeChart.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -248)
-    H.activity = K.Label(f, "", 12, -388, 250); H.activity:SetHeight(120); H.activity:SetJustifyV("TOP")
-    local update = K.Button(f, ns.T("tradeUpdate"), 100, function() ns.Markets.Scan(H.id) end)
-    update:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 14)
-    local close = K.Button(f, ns.T("historyClose"), 100, function() f:Hide() end)
-    close:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 14)
-    K.Tooltip(f, ns.T("itemHistory"), ns.T("marketActivityTip"))
-    f:Hide()
-end
 local P = {rows = {}, sellers = {}}
 ns.OfferPreview = P
 function P.Open(id)
@@ -103,7 +58,7 @@ function P.New(parent)
     P.frame = f; f:SetWidth(630); f:SetHeight(420)
     f:SetPoint("CENTER", parent, "CENTER", 0, 0)
     f:SetFrameLevel(parent:GetFrameLevel() + 45); f:SetClampedToScreen(true); f:EnableMouse(true); K.Panel(f)
-    P.item = K.ItemChoice(f, function() ns.ItemHistoryUI.Open(P.id) end)
+    P.item = K.ItemChoice(f, function() f:Hide(); K.Inspector.Switch("market") end)
     P.item:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -8); P.item:SetWidth(470); P.item.text:SetWidth(438)
     local close = K.Button(f, ns.T("historyClose"), 84, function() f:Hide() end, "quiet")
     close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, -10)

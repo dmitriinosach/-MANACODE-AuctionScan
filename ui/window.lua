@@ -171,16 +171,28 @@ function W.Layout()
     if ns.Trader.frame then ns.Trader.Refresh() end
     W.layingOut = false
 end
-function W.Save()
-    if not W.frame then return end
-    W.frame:StopMovingOrSizing()
-    ns.Store.DB().auctionWindow = {width = W.frame:GetWidth(), height = W.frame:GetHeight()}
+local function foreign()
+    local panel = _G["Atr_Main_Panel"]
+    return panel and panel:IsShown() and true or false
+end
+function W.Apply()
+    W.driver:SetScript("OnUpdate", nil)
+    local saved = ns.Store.DB().auctionWindow or {width = 1040, height = 630}
+    W.native = foreign()
+    local width = W.native and 832 or math.max(832, math.min(saved.width, W.maxWidth))
+    local height = W.native and 447 or math.max(447, math.min(saved.height, W.maxHeight))
+    if W.native then W.grip:Hide(); W.reset:Hide() else W.grip:Show(); W.reset:Show() end
+    W.frame:SetWidth(width); W.frame:SetHeight(height)
+    W.Layout()
+end
+function W.Queue()
+    if W.driver then W.driver:SetScript("OnUpdate", W.Apply) end
 end
 function W.SetSize(width, height)
     if combat() then ns.say(ns.T("windowCombat")); return false end
-    W.frame:SetWidth(math.max(832, math.min(width, W.maxWidth)))
-    W.frame:SetHeight(math.max(447, math.min(height, W.maxHeight)))
-    W.Layout(); W.Save()
+    ns.Store.DB().auctionWindow = {width = math.max(832, math.min(width, W.maxWidth)),
+        height = math.max(447, math.min(height, W.maxHeight))}
+    W.Apply()
     return true
 end
 function W.Install(frame)
@@ -189,16 +201,17 @@ function W.Install(frame)
     W.art = ns.TradeKit.AuctionArt(frame)
     W.maxWidth = math.max(832, math.min(1600, (UIParent and UIParent:GetWidth() or 1920) - 35))
     W.maxHeight = math.max(447, math.min(1100, (UIParent and UIParent:GetHeight() or 1080) - 130))
-    frame:SetResizable(true); frame:SetMinResize(832, 447); frame:SetMaxResize(W.maxWidth, W.maxHeight)
     for _, config in ipairs(layouts) do installList(config) end
-    W.grip = ns.TradeKit.ResizeGrip(frame, function()
-        if not combat() then frame:StartSizing("BOTTOMRIGHT") end
-    end, W.Save)
+    W.grip = ns.TradeKit.ResizeGrip(frame, {832, 447, W.maxWidth, W.maxHeight}, function()
+        if combat() then ns.say(ns.T("windowCombat")); return false end
+        return not W.native
+    end, W.SetSize)
     W.reset = ns.TradeKit.Button(frame, ns.T("windowDefault"), 62, function() W.SetSize(1040, 630) end)
     W.reset:SetPoint("TOPLEFT", frame, "TOPLEFT", 75, -12)
     ns.TradeKit.Tooltip(W.reset, ns.T("windowDefault"), ns.T("windowDefaultTip"))
-    frame:HookScript("OnSizeChanged", W.Layout)
-    hooksecurefunc("AuctionFrameTab_OnClick", W.Layout)
-    local saved = ns.Store.DB().auctionWindow or {width = 1040, height = 630}
-    W.SetSize(saved.width, saved.height)
+    W.driver = ns.NewFrame("Frame", nil, frame)
+    hooksecurefunc("AuctionFrameTab_OnClick", W.Queue)
+    local panel = _G["Atr_Main_Panel"]
+    if panel then panel:HookScript("OnShow", W.Queue); panel:HookScript("OnHide", W.Queue) end
+    W.Apply()
 end

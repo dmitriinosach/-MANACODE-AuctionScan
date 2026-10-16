@@ -66,7 +66,7 @@ function UI:Render()
         if C.CanFavorite(selected.raw) then self.open:Show() else self.open:Hide() end
         self.history:Enable(); self.buy:Enable()
     else
-        self.inspector.item:Hide(); self.inspector.offers:Hide(); self.inspector.actions.frame:Hide()
+        self.inspector:Clear()
         self.summary:SetText(ns.T("collectionActionsTip")); self.open:Hide(); self.history:Disable(); self.buy:Disable()
     end
     if ns.Scan.state.phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
@@ -121,10 +121,10 @@ function UI:New(parent)
     self.stop:SetPoint("RIGHT", self.buy, "LEFT", -6, 0)
     self.resume = K.Button(f, ns.T("tradeResume"), 92, function() ns.Scan.Start("pages"); self:Render() end)
     self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
-    self.inspector = K.Inspector:New(f, function() if self.selected then ns.ItemHistoryUI.Open(self.selected) end end)
-    local panel = self.inspector.frame
+    self.inspector = K.Inspector:New(f)
+    local panel = self.inspector.body
     self.summary = K.Label(panel, "", 12, -48, 240); self.summary:SetHeight(200); self.summary:SetJustifyV("TOP")
-    self.history = K.Button(panel, ns.T("itemHistory"), 114, function() if self.selected then ns.ItemHistoryUI.Open(self.selected) end end)
+    self.history = K.Button(panel, ns.T("itemHistory"), 114, function() K.Inspector.Switch("market") end)
     self.history:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 12, 40)
     self.open = K.Button(panel, ns.T("collectionOpenRecipe"), 150, function() if self.selected then ns.Collections.OpenRecipe(self.selected) end end)
     self.open:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 12, 8)
