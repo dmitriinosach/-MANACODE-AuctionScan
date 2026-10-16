@@ -9,7 +9,8 @@ function UI.Ready()
         and ns.Alchemy and ns.AlchemyUI and ns.Batch and ns.alchemyRecipes
         and ns.Reagents and ns.ReagentsUI and ns.Resale and ns.ResaleUI and ns.CraftPlan and ns.AuctionWindow
         and ns.Activity and ns.Disenchant and ns.DisenchantUI and ns.MarketBoardUI
-        and ns.Collections and ns.CollectionsUI and ns.seasonalEvents and ns.OfferPreview then return true end
+        and ns.Collections and ns.CollectionsUI and ns.Hidden and ns.HiddenUI
+        and ns.seasonalEvents and ns.OfferPreview then return true end
     if not UI.warned then
         UI.warned = true
         ns.say(ns.T("tradeRestartRequired"))
@@ -58,11 +59,13 @@ function UI:ShowSection(section)
     self.resale:Hide()
     self.disenchant:Hide()
     self.collections:Hide()
+    self.hiddenView:Hide()
     self.buyView.frame:Hide()
     if section == "buy" then self.buyView.frame:Show()
     elseif section == "reagents" then self.reagents:Show()
     elseif section == "disenchant" then self.disenchant:Show()
     elseif section == "collections" then self.collections:Show()
+    elseif section == "hidden" then self.hiddenView:Show()
     elseif self.professionModes[section] == "resale" then
         ns.ResaleUI:SetProps({profession = section})
         self.resale:Show()
@@ -77,7 +80,9 @@ function UI:ShowSection(section)
     self.nav.reagents:SetActive(section == "reagents")
     self.nav.disenchant:SetActive(section == "disenchant")
     self.nav.collections:SetActive(section == "collections")
-    self.professionMenu.frame:SetActive(section ~= "buy" and section ~= "reagents" and section ~= "disenchant" and section ~= "collections")
+    self.nav.hidden:SetActive(section == "hidden")
+    self.professionMenu.frame:SetActive(section ~= "buy" and section ~= "reagents" and section ~= "disenchant"
+        and section ~= "collections" and section ~= "hidden")
     UI.Refresh()
 end
 function UI.SetProfessionMode(profession, mode)
@@ -120,6 +125,7 @@ function UI:Render()
     if ns.ResaleUI then ns.ResaleUI:Render() end
     if ns.DisenchantUI then ns.DisenchantUI:Render() end
     if ns.CollectionsUI then ns.CollectionsUI:Render() end
+    if ns.HiddenUI then ns.HiddenUI:Render() end
     if ns.OfferPreview and ns.OfferPreview.frame and ns.OfferPreview.frame:IsShown() then ns.OfferPreview:Render() end
 end
 function UI:New(parent)
@@ -160,9 +166,14 @@ function UI:New(parent)
     disenchantTab:SetPoint("LEFT", reagentTab, "RIGHT", 6, 0)
     self.nav.collections = K.Button(root, ns.T("collectionTitle"), 90, function() self:ShowSection("collections") end, "quiet")
     self.nav.collections:SetPoint("LEFT", disenchantTab, "RIGHT", 6, 0)
+    self.nav.hidden = K.Button(root, ns.T("hiddenSection"), 90, function() self:ShowSection("hidden") end, "quiet")
+    self.nav.hidden:SetPoint("LEFT", self.nav.collections, "RIGHT", 6, 0)
     local complete = K.Button(root, ns.T("cacheCompleteAll"), 126, function()
-        ns.Batch.All(IsShiftKeyDown()); UI.Refresh()
+        ns.Batch.All(K.ScanMode()); UI.Refresh()
     end, "main")
+    complete.tipFn = function()
+        return ns.T("cacheCompleteAllTip") .. "\n\n" .. ns.Batch.PreviewText(ns.Batch.AllSources(), true)
+    end
     complete:SetPoint("TOPRIGHT", root, "TOPRIGHT", -6, -2)
     K.Tooltip(complete, ns.T("cacheCompleteAll"), ns.T("cacheCompleteAllTip"))
     local content = ns.NewFrame("Frame", nil, root)
@@ -176,6 +187,7 @@ function UI:New(parent)
     self.resale = ns.ResaleUI:New(content).frame
     self.disenchant = ns.DisenchantUI:New(content).frame
     self.collections = ns.CollectionsUI:New(content).frame
+    self.hiddenView = ns.HiddenUI:New(content).frame
     ns.OfferPreview.New(root)
     self.tab = ns.AuctionPage.Install(root)
     self:ShowSection("buy")

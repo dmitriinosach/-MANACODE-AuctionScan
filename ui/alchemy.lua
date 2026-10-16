@@ -7,8 +7,10 @@ function UI:SetProps(props)
     if props.profession and props.profession ~= self.props.profession then
         ns.Batch.Stop()
         self.props.profession = props.profession
-        local first = ns.craftCatalogs[props.profession].recipes[1].raw
+        local catalog = ns.craftCatalogs[props.profession]
+        local first = (ns.Hidden.Filter(catalog.recipes, false)[1] or catalog.recipes[1]).raw
         self.props.recipe, self.props.id, self.props.page = first, first, 1
+        self.showHidden = false
         self.make, self.ignore, self.props.craftAll = {}, {}, false
         self.open = {}
         if self.scroll then self.scroll.offset = 0 end
@@ -29,6 +31,7 @@ function UI:SetProps(props)
     self:Render()
 end
 function UI:Select(id, row)
+    if row and row.hidden then return end
     if self.props.view ~= "list" then self:SetProps({id = id}); return end
     local owner = row and row.owner
     if not owner or ns.craftCatalogs[self.props.profession].byItem[id] then self:SetProps({recipe = id}); return end
@@ -62,6 +65,12 @@ function UI:Controls()
     if phase == "paused" then self.resume:Show() else self.resume:Hide() end
     if phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
 end
+function UI:ScanSources()
+    local p = self.props
+    if p.view == "list" then return ns.Crafting.ProfessionSources(p.profession) end
+    return ns.Crafting.RecipeSources(ns.craftCatalogs[p.profession].byItem[p.recipe],
+        {make = self.make, ignore = self.ignore, craftAll = p.craftAll, owned = p.owned, fee = p.fee})
+end
 function UI:SavePrice()
     local price = tonumber((self.priceEdit:GetText():gsub(",", ".")))
     if not price or not ns.Alchemy.SetPrice(self.props.id, price * 10000) then
@@ -76,8 +85,9 @@ function UI:Render()
     local K, p = ns.TradeKit, self.props
     local list = p.view == "list"
     local catalog = ns.craftCatalogs[p.profession]
+    self.reserve = 70
     local width = (self.frame:GetWidth() or 996) - 310
-    local columns = K.MarketColumns(width, not list and "craft" or nil)
+    local columns = K.MarketColumns(width - (list and self.reserve or 0), not list and "craft" or nil)
     for key, label in pairs(self.headers) do
         if columns[key] then
             label:ClearAllPoints()
@@ -86,13 +96,19 @@ function UI:Render()
         else label:Hide() end
     end
     self.headers.item:SetText(ns.T(list and "craftListRecipes" or "alchemyItem"))
+    self.sorter:Mark()
     for _, frame in ipairs({self.picker.frame, self.back, self.materials}) do
         if list then frame:Hide() else frame:Show() end
     end
     if list then self.listTitle:Show() else self.listTitle:Hide() end
+    if list then self.hideRecipe:Hide() else self.hideRecipe:Show() end
     self.scan:SetText(ns.T(list and "craftListScan" or "scanSelection"))
     K.Tooltip(self.scan, ns.T(list and "craftListScan" or "scanSelection"),
         ns.T(list and "craftListScanTip" or "scanRecipeSelectionTip"))
+    self.scan.tipFn = function()
+        return ns.T(list and "craftListScanTip" or "scanRecipeSelectionTip") .. "\n\n"
+            .. ns.Batch.PreviewText(self:ScanSources(), list)
+    end
     self.owned:SetText(ns.T(p.owned and "craftOwnedYes" or "craftOwnedNo"))
     self.fee:SetText(ns.T("tradeFee", math.floor(p.fee * 100 + 0.5)))
     if list then self:RenderList(catalog, width) else self:RenderRecipe(catalog, width) end
@@ -101,6 +117,12 @@ end
 function UI:RenderList(catalog, width)
     local K, p = ns.TradeKit, self.props
     local ranked = ns.CraftPlan.Rank(catalog.recipes, {owned = p.owned, fee = p.fee})
+    ranked = self.sorter:Apply(ranked, {
+        item = function(entry) return ns.Markets.Name(entry.raw) end,
+        price = function(entry) local q = ns.Markets.Quote(entry.raw); return q and q.price end,
+        margin = function(entry) return entry.plan.margin end,
+        units = function(entry) local q = ns.Markets.Quote(entry.raw); return q and q.units end,
+    }, function(entry) return ns.Collections.Pinned(entry.raw) end)
     self.ranked = ranked
     local priced, profitable = 0, 0
     for _, entry in ipairs(ranked) do
@@ -118,11 +140,31 @@ function UI:RenderList(catalog, width)
             end
         end
     end
+    local hidden = ns.Hidden.Recipes(p.profession)
+    if #hidden > 0 then
+        entries[#entries + 1] = {spoiler = true, count = #hidden}
+        if self.showHidden then
+            for _, recipe in ipairs(hidden) do entries[#entries + 1] = {hiddenRecipe = recipe} end
+        end
+    end
     local visible = K.ListCapacity(self.frame, 56, 96, 29, #self.rows)
     local offset = self.scroll:SetRange(#entries, visible)
+    self.spoiler:Hide()
     for i, row in ipairs(self.rows) do
         local entry = i <= visible and entries[offset + i]
-        if entry and entry.node then
+        if entry and entry.spoiler then
+            row.frame:Hide()
+            self.spoiler:ClearAllPoints()
+            self.spoiler:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, -56 - (i - 1) * 29)
+            self.spoiler:SetWidth(width); self.spoiler:SetHeight(26)
+            self.spoiler:SetText(ns.T(self.showHidden and "hiddenSpoilerOpen" or "hiddenSpoilerClosed", entry.count))
+            self.spoiler:Show()
+        elseif entry and entry.hiddenRecipe then
+            local recipe = entry.hiddenRecipe
+            row:SetProps({id = recipe.raw, active = false, width = width, reserve = self.reserve, depth = 0,
+                include = false, expandable = false, hidden = true, hideable = true, noRefresh = true,
+                hideLabel = ns.T("hiddenRestore"), detail = ns.T(recipe.category) .. ns.T("hiddenRowNote")})
+        elseif entry and entry.node then
             local node = entry.node
             local have = math.max(0, GetItemCount(node.id, true) or 0)
             local q = ns.Alchemy.Quote(node.id)
@@ -133,7 +175,7 @@ function UI:RenderList(catalog, width)
             if node.extra and node.extra > 0 then detail = detail .. ns.T("craftExtra", node.extra) end
             K.Tooltip(row.expand, ns.T("craftListExpand"), ns.T("craftListExpandTip"))
             row:SetProps({id = node.id, quote = q, active = false, width = width, depth = node.depth + 1, include = false,
-                expandable = node.expandable, crafted = node.crafted, owner = entry.owner,
+                expandable = node.expandable, crafted = node.crafted, owner = entry.owner, reserve = self.reserve,
                 detail = detail, extraTip = ns.T("craftListInputTip")})
         elseif entry then
             local q = ns.Markets.Quote(entry.raw)
@@ -144,7 +186,7 @@ function UI:RenderList(catalog, width)
             K.Tooltip(row.expand, ns.T("craftListExpand"), ns.T("craftListExpandTip"))
             row:SetProps({id = entry.raw, quote = q, active = entry.raw == p.recipe, width = width,
                 margin = entry.plan.margin, detail = detail, depth = 0, include = false,
-                expandable = true, crafted = self.open[entry.raw] ~= nil})
+                expandable = true, crafted = self.open[entry.raw] ~= nil, reserve = self.reserve, hideable = true})
         else row.frame:Hide() end
     end
     self.listTitle:SetText(ns.T("craftListTitle", ns.T(catalog.labelKey), #ranked))
@@ -158,7 +200,8 @@ end
 function UI:RenderRecipe(catalog, width)
     local K, p = ns.TradeKit, self.props
     local recipe = catalog.byItem[p.recipe]
-    self.picker:SetProps({families = catalog.recipes, raw = p.recipe, headingKey = catalog.labelKey})
+    self.hideRecipe:SetText(ns.T("hiddenHide"))
+    self.picker:SetProps({families = ns.Hidden.Filter(catalog.recipes, false), raw = p.recipe, headingKey = catalog.labelKey})
     local plan = ns.CraftPlan.Build(recipe, {make = self.make, ignore = self.ignore, craftAll = p.craftAll, owned = p.owned, fee = p.fee})
     self.plan = plan
     local entries = {{id = recipe.raw, count = recipe.count, output = true}}
@@ -228,9 +271,9 @@ function UI:New(parent)
     self.back:SetPoint("LEFT", self.picker.frame, "RIGHT", 4, 0)
     K.Tooltip(self.back, ns.T("craftListBack"), ns.T("craftListBackTip"))
     self.scan = K.Button(f, ns.T("scanSelection"), 140, function()
-        if self.props.view == "list" then ns.Crafting.CompleteProfession(self.props.profession, IsShiftKeyDown())
+        if self.props.view == "list" then ns.Crafting.CompleteProfession(self.props.profession, K.ScanMode())
         else
-            ns.Crafting.Complete(ns.craftCatalogs[self.props.profession].byItem[self.props.recipe], IsShiftKeyDown(),
+            ns.Crafting.Complete(ns.craftCatalogs[self.props.profession].byItem[self.props.recipe], K.ScanMode(),
                 {make = self.make, ignore = self.ignore, craftAll = self.props.craftAll, owned = self.props.owned, fee = self.props.fee})
         end
         self:Render()
@@ -244,16 +287,23 @@ function UI:New(parent)
         if entry[1] ~= "item" then label:SetJustifyH("RIGHT") end
         self.headers[entry[1]] = label
     end
+    self.sorter = K.Sorter(f, self.headers, function() self.scroll.offset = 0; self:Render() end,
+        function() return self.props.view == "list" end)
     self.scroll = K.TableScroll(f, function() self:Render() end, 85, 96, 29)
     for i = 1, 40 do
         local row = K.MarketRow:New(f, function(id, props) self:Select(id, props) end,
             function(id, props) self:ToggleMaterial(id, props) end,
-            function(id, checked) self.ignore[id] = not checked; self:Render() end)
+            function(id, checked) self.ignore[id] = not checked; self:Render() end,
+            function(id) self.open[id] = nil; ns.Hidden.Toggle(id); ns.Trader.Refresh() end)
         row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -56 - (i - 1) * 29)
         row.frame:SetHeight(28)
         self.rows[i] = row
         self.scroll:Wheel(row.frame)
     end
+    self.spoiler = K.Button(f, "", 400, function() self.showHidden = not self.showHidden; self:Render() end, "quiet")
+    self.spoiler.text:ClearAllPoints(); self.spoiler.text:SetPoint("LEFT", self.spoiler, "LEFT", 10, 0)
+    self.spoiler:Hide()
+    K.Tooltip(self.spoiler, ns.T("hiddenSection"), ns.T("hiddenSpoilerTip"))
     local info = K.Button(f, ns.T("tradeInfo"), 24, function() end)
     info:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 122, 4)
     K.Tooltip(info, ns.T("craftProfessions"), ns.T("alchemyInfo") .. "\n\n" .. ns.T("craftMarginTip"))
@@ -310,6 +360,12 @@ function UI:New(parent)
         ns.Trader.OpenReagent(self.props.id, self.props.fee)
     end)
     self.reagent:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 12, 8)
+    self.hideRecipe = K.Button(panel, ns.T("hiddenHide"), 224, function()
+        self.open[self.props.recipe] = nil
+        ns.Hidden.Set(self.props.recipe, true); self:SetProps({view = "list"}); ns.Trader.Refresh()
+    end)
+    self.hideRecipe:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 12, 36)
+    K.Tooltip(self.hideRecipe, ns.T("hiddenHide"), ns.T("hiddenHideTip"))
     f:SetScript("OnSizeChanged", function() self:Render() end)
     self:Render()
     return self

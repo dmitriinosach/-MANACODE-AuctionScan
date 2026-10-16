@@ -68,7 +68,9 @@ end
 function P.Rank(recipes, options)
     local ranked = {}
     for _, recipe in ipairs(recipes) do
-        ranked[#ranked + 1] = {raw = recipe.raw, recipe = recipe, plan = P.Build(recipe, options)}
+        if not (ns.Hidden and ns.Hidden.Is(recipe.raw)) then
+            ranked[#ranked + 1] = {raw = recipe.raw, recipe = recipe, plan = P.Build(recipe, options)}
+        end
     end
     table.sort(ranked, function(a, b)
         local left, right = a.plan.margin, b.plan.margin

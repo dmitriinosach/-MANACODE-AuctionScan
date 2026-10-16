@@ -12,6 +12,28 @@ function UI:Render()
     local events = ns.seasonalEvents or {}
     if not p.event then p.event = events[1] and events[1].key end
     local entries = C.Items(p.mode, p.event)
+    for _, entry in ipairs(entries) do
+        local q, margin = ns.Markets.Quote(entry.raw)
+        local recipe, family = ns.Crafting.byItem[entry.raw], ns.gemByItem[entry.raw]
+        local detail = entry.noteKey and ns.T(entry.noteKey) or ""
+        if recipe then
+            margin = ns.CraftPlan.Build(recipe, {fee = p.fee}).margin
+            detail = ns.T(ns.craftCatalogs[recipe.profession].labelKey)
+        elseif family and family.raw ~= entry.raw then
+            local raw = ns.Markets.Quote(family.raw)
+            if q and q.price and raw and raw.price and q.miss == 0 and raw.miss == 0 then margin = q.price * (1 - p.fee) - raw.price end
+            detail = ns.T("jewelrySection")
+        end
+        if q and not q.vendor then detail = detail .. ns.T("cacheAge", math.max(0, math.floor((time() - q.at) / 60))) end
+        entry.quote, entry.margin, entry.detail = q, margin, detail
+    end
+    entries = self.sorter:Apply(entries, {
+        item = function(entry) return ns.Markets.Name(entry.raw) end,
+        price = function(entry) return entry.quote and entry.quote.price end,
+        margin = function(entry) return entry.margin end,
+        units = function(entry) return entry.quote and entry.quote.units end,
+    })
+    self.sorter:Mark()
     self.mode.frame:SetText(ns.T(p.mode == "favorites" and "collectionFavorites" or
         (p.mode == "seasonal" and "collectionSeasonal" or "collectionTracked")))
     local event
@@ -39,20 +61,8 @@ function UI:Render()
         local entry = entries[offset + i]
         if i > self.scroll.visible then entry = nil end
         if entry then
-            local q, margin = ns.Markets.Quote(entry.raw)
-            local recipe, family = ns.Crafting.byItem[entry.raw], ns.gemByItem[entry.raw]
-            local detail = entry.noteKey and ns.T(entry.noteKey) or ""
-            if recipe then
-                margin = ns.CraftPlan.Build(recipe, {fee = p.fee}).margin
-                detail = ns.T(ns.craftCatalogs[recipe.profession].labelKey)
-            elseif family and family.raw ~= entry.raw then
-                local raw = ns.Markets.Quote(family.raw)
-                if q and q.price and raw and raw.price and q.miss == 0 and raw.miss == 0 then margin = q.price * (1 - p.fee) - raw.price end
-                detail = ns.T("jewelrySection")
-            end
-            if q and not q.vendor then detail = detail .. ns.T("cacheAge", math.max(0, math.floor((time() - q.at) / 60))) end
-            row:SetProps({id = entry.raw, quote = q, margin = margin, width = width,
-                active = entry.raw == self.selected, detail = detail, extraTip = entry.noteKey and ns.T(entry.noteKey)})
+            row:SetProps({id = entry.raw, quote = entry.quote, margin = entry.margin, width = width,
+                active = entry.raw == self.selected, detail = entry.detail, extraTip = entry.noteKey and ns.T(entry.noteKey)})
         else row.frame:Hide() end
     end
     self.empty:SetText(#entries == 0 and ns.T(p.mode == "seasonal" and "seasonNoAuctionItems" or "collectionEmpty") or "")
@@ -106,6 +116,7 @@ function UI:New(parent)
         self.headers[entry[1]] = K.Label(f, ns.T(entry[2]), 0, -74, 100)
         if entry[1] ~= "item" then self.headers[entry[1]]:SetJustifyH("RIGHT") end
     end
+    self.sorter = K.Sorter(f, self.headers, function() self.scroll.offset = 0; self:Render() end)
     self.scroll = K.TableScroll(f, function() self:Render() end, 94, 56, 29)
     for i = 1, 40 do
         local row = K.MarketRow:New(f, function(id) self.selected = id; self:Render() end)

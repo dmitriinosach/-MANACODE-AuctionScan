@@ -67,16 +67,23 @@ function A.Targets(recipe)
     return ids
 end
 function A.Scan(recipe)
+    if ns.Hidden.Is(recipe.raw) then return false end
     return ns.Batch.Start(A.Targets(recipe))
 end
-function A.Complete(recipe, force, options)
-    local ids = options and ns.CraftPlan.Targets(recipe, options) or A.Targets(recipe)
-    return ns.Batch.Complete(ids, force)
+function A.RecipeSources(recipe, options)
+    return options and ns.CraftPlan.Targets(recipe, options) or A.Targets(recipe)
 end
-function A.CompleteProfession(profession, force)
+function A.Complete(recipe, force, options)
+    if ns.Hidden.Is(recipe.raw) then return false end
+    return ns.Batch.Complete(A.RecipeSources(recipe, options), force)
+end
+function A.ProfessionSources(profession)
     local ids = {}
-    for _, recipe in ipairs(ns.craftCatalogs[profession].recipes) do
+    for _, recipe in ipairs(ns.Hidden.Filter(ns.craftCatalogs[profession].recipes, false)) do
         for _, id in ipairs(A.Targets(recipe)) do ids[#ids + 1] = id end
     end
-    return ns.Batch.Complete(ids, force, true)
+    return ids
+end
+function A.CompleteProfession(profession, force)
+    return ns.Batch.Complete(A.ProfessionSources(profession), force, true)
 end

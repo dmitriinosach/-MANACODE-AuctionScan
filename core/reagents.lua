@@ -14,7 +14,7 @@ function R.Uses(id, fee)
     for _, key in ipairs(ns.Crafting.order) do
         local catalog = ns.craftCatalogs[key]
         if catalog then
-            for _, recipe in ipairs(catalog.recipes) do
+            for _, recipe in ipairs(ns.Hidden.Filter(catalog.recipes, false)) do
                 for _, input in ipairs(recipe.inputs) do
                     if input[1] == id then
                         local estimate = ns.Crafting.Estimate(recipe, fee)

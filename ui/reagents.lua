@@ -23,6 +23,21 @@ function UI:Render()
     local K, p = ns.TradeKit, self.props
     local uses, items = self.mode == "packs" and ns.Reagents.Packs(p.id, p.fee)
         or ns.Reagents.Uses(p.id, p.fee), ns.Reagents.Items()
+    local packs = self.mode == "packs"
+    local function quote(id) return ns.Markets.Quote(id) end
+    uses = self.sorter:Apply(uses, {
+        item = function(use) return ns.Markets.Name(packs and use.raw or use.recipe.raw) end,
+        price = function(use)
+            if packs then return use.price end
+            local q = quote(use.recipe.raw); return q and q.price
+        end,
+        margin = function(use) if packs then return use.premium end return use.gain end,
+        units = function(use)
+            if packs then return use.lots end
+            local q = quote(use.recipe.raw); return q and q.units
+        end,
+    })
+    self.sorter:Mark()
     self.viewMenu.frame:SetText(ns.T(self.mode == "packs" and "reagentPacks" or "professionCrafts"))
     self.headers.item:SetText(ns.T(self.mode == "packs" and "packRecipe" or "reagentRecipes"))
     self.headers.price:SetText(ns.T(self.mode == "packs" and "packPrice" or "tradeUnitPrice"))
@@ -96,6 +111,7 @@ function UI:New(parent)
         if entry[1] ~= "item" then label:SetJustifyH("RIGHT") end
         self.headers[entry[1]] = label
     end
+    self.sorter = K.Sorter(f, self.headers, function() self.scroll.offset = 0; self:Render() end)
     self.scroll = K.TableScroll(f, function() self:Render() end, 56, 56, 29)
     for i = 1, 40 do
         local row = K.MarketRow:New(f, function(id)

@@ -73,7 +73,7 @@ function C.Items(mode, eventKey)
     else
         local ids = mode == "favorites" and saved().favorites or saved().tracked
         for id in pairs(ids) do
-            if mode ~= "favorites" or C.CanFavorite(id) then result[#result + 1] = {raw = id} end
+            if mode ~= "favorites" or (C.CanFavorite(id) and not ns.Hidden.Is(id)) then result[#result + 1] = {raw = id} end
         end
         table.sort(result, function(a, b) return ns.Markets.Name(a.raw) < ns.Markets.Name(b.raw) end)
     end

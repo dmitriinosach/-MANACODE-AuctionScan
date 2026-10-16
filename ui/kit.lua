@@ -56,6 +56,11 @@ function K.Panel(parent)
     parent:SetBackdropColor(unpack(K.theme.panel))
     parent:SetBackdropBorderColor(unpack(K.theme.edge))
 end
+function K.ScanMode()
+    if IsShiftKeyDown() then return true end
+    if IsControlKeyDown and IsControlKeyDown() then return "missing" end
+    return false
+end
 function K.Tooltip(parent, title, body)
     parent.tipTitle, parent.tip = title, body
     if rawget(parent, "tradeTipHooked") then return end
@@ -63,7 +68,7 @@ function K.Tooltip(parent, title, body)
     parent:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(self.tipTitle, unpack(K.theme.text))
-        GameTooltip:AddLine(self.tip, K.theme.gold[1], K.theme.gold[2], K.theme.gold[3], true)
+        GameTooltip:AddLine(self.tipFn and self.tipFn() or self.tip, K.theme.gold[1], K.theme.gold[2], K.theme.gold[3], true)
         GameTooltip:Show()
     end)
     parent:HookScript("OnLeave", function() GameTooltip:Hide() end)
@@ -204,6 +209,67 @@ function K.TableHeader(parent, y)
     band:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, y + 5)
     band:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -302, y + 5); band:SetHeight(20)
     return band
+end
+local Sorter = {}
+Sorter.__index = Sorter
+function K.Sorter(frame, headers, changed, active)
+    local sorter = setmetatable({buttons = {}, headers = headers, changed = changed, active = active}, Sorter)
+    for key, label in pairs(headers) do
+        local button = ns.NewFrame("Button", nil, frame)
+        button:SetAllPoints(label)
+        button:EnableMouse(true)
+        button.arrow = button:CreateTexture(nil, "OVERLAY")
+        button.arrow:SetTexture("Interface\\Buttons\\UI-SortArrow")
+        button.arrow:SetWidth(9); button.arrow:SetHeight(9); button.arrow:Hide()
+        button:SetScript("OnClick", function() sorter:Click(key) end)
+        K.Tooltip(button, ns.T("sortTitle"), ns.T("sortTip"))
+        sorter.buttons[key] = button
+    end
+    return sorter
+end
+function Sorter:Click(key)
+    local current = self.sort
+    if current and current.key == key then
+        if current.desc == (key ~= "item") then self.sort = {key = key, desc = not current.desc}
+        else self.sort = nil end
+    else self.sort = {key = key, desc = key ~= "item"} end
+    self.changed()
+end
+function Sorter:Mark()
+    local usable = not self.active or self.active()
+    for key, button in pairs(self.buttons) do
+        local label = self.headers[key]
+        if usable and label:IsShown() then button:Show() else button:Hide() end
+        local current = self.sort
+        button.arrow:ClearAllPoints()
+        if usable and current and current.key == key then
+            local width = (label.GetStringWidth and label:GetStringWidth()) or 40
+            if key == "item" then button.arrow:SetPoint("LEFT", button, "LEFT", width + 4, 0)
+            else button.arrow:SetPoint("RIGHT", button, "RIGHT", -(width + 4), 0) end
+            if current.desc then button.arrow:SetTexCoord(0, 0.5625, 0, 1) else button.arrow:SetTexCoord(0, 0.5625, 1, 0) end
+            button.arrow:Show()
+        else button.arrow:Hide() end
+    end
+end
+function Sorter:Apply(entries, getters, group)
+    local current = self.sort
+    local get = current and getters[current.key]
+    if not get then return entries end
+    local keyed = {}
+    for i, entry in ipairs(entries) do keyed[i] = {entry = entry, value = get(entry), index = i, first = group and group(entry) or false} end
+    table.sort(keyed, function(a, b)
+        if a.first ~= b.first then return a.first end
+        if a.value ~= b.value then
+            if a.value == nil then return false end
+            if b.value == nil then return true end
+            if current.desc then return a.value > b.value end
+            return a.value < b.value
+        end
+        return a.index < b.index
+    end)
+    local result = {}
+    for i, item in ipairs(keyed) do result[i] = item.entry end
+    return result
 end
 local Inspector = {mode = "summary", all = {}}
 Inspector.__index = Inspector
@@ -678,7 +744,7 @@ function K.MarketColumns(width, layout)
     return {item = {0, width - 374}, price = {width - 374, 104},
         margin = {width - 264, 118}, units = {width - 140, 40}}
 end
-function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost)
+function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost, toggleHide)
     local row = setmetatable({}, self)
     row.frame = K.ItemChoice(parent, function() selectRow(row.props.id, row.props) end)
     parent.marketRowCount = (rawget(parent, "marketRowCount") or 0) + 1
@@ -715,6 +781,10 @@ function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost)
     end, "quiet")
     row.refresh:SetPoint("RIGHT", row.frame, "RIGHT", -2, 0)
     K.Tooltip(row.refresh, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
+    if toggleHide then
+        row.hide = K.Button(row.frame, ns.T("hiddenHide"), 66, function() toggleHide(row.props.id, row.props) end, "quiet")
+        row.hide:SetPoint("RIGHT", row.refresh, "LEFT", -4, 0)
+    end
     if toggleMaterial then
         row.expand = K.Button(row.frame, "+", 16, function() toggleMaterial(row.props.id, row.props) end, "quiet")
         row.expand.text:ClearAllPoints(); row.expand.text:SetPoint("CENTER", row.expand, "CENTER", 0, 0)
@@ -735,9 +805,16 @@ function MarketRow:Render()
     local p = self.props
     self.frame.extraTip = p.extraTip
     K.SetItemChoice(self.frame, p.id, p.active, p.quality)
+    local columns = p.width and K.MarketColumns(p.width - (p.reserve or 0), p.layout)
+    if self.hide then
+        if p.hideable then
+            self.hide:SetText(p.hideLabel or ns.T("hiddenHide"))
+            K.Tooltip(self.hide, p.hideLabel or ns.T("hiddenHide"), ns.T(p.hidden and "hiddenRestoreTip" or "hiddenHideTip"))
+            self.hide:Show()
+        else self.hide:Hide() end
+    end
     if p.match then self.match:Show(); self.matchBar:Show() else self.match:Hide(); self.matchBar:Hide() end
     if p.width then
-        local columns = K.MarketColumns(p.width, p.layout)
         self.frame:SetWidth(p.width)
         self.frame.text:SetWidth(columns.item[2] - 34)
         self.detail:SetWidth(columns.item[2] - 34)
@@ -759,8 +836,8 @@ function MarketRow:Render()
         self.frame.icon:ClearAllPoints(); self.frame.icon:SetPoint("LEFT", self.frame, "LEFT", offset + 2, 0)
         self.frame.text:ClearAllPoints(); self.frame.text:SetPoint("TOPLEFT", self.frame, "TOPLEFT", offset + 28, -2)
         self.detail:ClearAllPoints(); self.detail:SetPoint("TOPLEFT", self.frame, "TOPLEFT", offset + 28, -14)
-        self.frame.text:SetWidth(math.max(24, K.MarketColumns(p.width, p.layout).item[2] - offset - 34))
-        self.detail:SetWidth(math.max(24, K.MarketColumns(p.width, p.layout).item[2] - offset - 34))
+        self.frame.text:SetWidth(math.max(24, columns.item[2] - offset - 34))
+        self.detail:SetWidth(math.max(24, columns.item[2] - offset - 34))
         self.expand:ClearAllPoints(); self.expand:SetPoint("LEFT", self.frame, "LEFT", math.max(0, offset - 16), 0)
         self.expand:SetText(p.crafted and "-" or "+")
         if p.excluded then self.expand:Disable() else self.expand:Enable() end
@@ -776,15 +853,15 @@ function MarketRow:Render()
         self.margin:ClearAllPoints()
         self.margin:SetPoint("TOPRIGHT", self.marginRate, "TOPRIGHT", 0, 13)
         self.marginRate:ClearAllPoints()
-        self.marginRate:SetPoint("TOPLEFT", self.frame, "TOPLEFT", K.MarketColumns(p.width, p.layout).margin[1], -15)
-        self.marginRate:SetWidth(K.MarketColumns(p.width, p.layout).margin[2])
+        self.marginRate:SetPoint("TOPLEFT", self.frame, "TOPLEFT", columns.margin[1], -15)
+        self.marginRate:SetWidth(columns.margin[2])
         self.marginRate:SetJustifyH("RIGHT"); self.marginRate:SetText(ns.T("deMarginRate", p.percent)); self.marginRate:Show()
     else self.marginRate:Hide() end
     self.margin:SetTextColor(unpack(K.theme[p.tone or (p.margin and (p.margin > 0 and "positive" or "negative") or "text")]))
     self.units:SetText(p.quote and tostring(p.quote.units) or ns.T("tradeNoPrice"))
     self.detail:SetText((p.detail or "") .. (p.quote and (p.quote.miss or 0) > 0 and ns.T("cacheIncomplete") or ""))
     self.detail:SetTextColor(unpack(K.theme.secondary))
-    if p.quote and p.quote.vendor then self.refresh:Hide() else self.refresh:Show() end
+    if p.noRefresh or (p.quote and p.quote.vendor) then self.refresh:Hide() else self.refresh:Show() end
 end
 local Chart = {}
 Chart.__index = Chart

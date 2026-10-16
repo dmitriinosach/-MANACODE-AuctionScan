@@ -23,6 +23,22 @@ function UI:Render()
     self.tableWidth = width
     local family = ns.gemByRaw[p.family]
     local members = ns.Collections.OrderIDs(family.members)
+    local function margin(id)
+        local q, base = ns.Markets.Quote(id), ns.Markets.Quote(family.raw)
+        if id ~= family.raw and base and base.price and q and q.price and base.miss == 0 and q.miss == 0 then
+            return q.price * (1 - p.fee) - base.price
+        end
+    end
+    local rest = {}
+    for i = 2, #members do rest[#rest + 1] = members[i] end
+    rest = self.sorter:Apply(rest, {
+        item = function(id) return ns.Markets.Name(id) end,
+        price = function(id) local q = ns.Markets.Quote(id); return q and q.price end,
+        margin = margin,
+        units = function(id) local q = ns.Markets.Quote(id); return q and q.units end,
+    })
+    for i = 2, #members do members[i] = rest[i - 1] end
+    self.sorter:Mark()
     self.picker:SetProps({families = ns.gemFamilies, raw = family.raw})
     local visible = ns.TradeKit.ListCapacity(self.frame, 56, 56, 24, #self.rows)
     local offset = self.scroll:SetRange(#family.members - 1, math.max(1, visible - 1))
@@ -96,6 +112,7 @@ function UI:New(parent)
         if entry[1] ~= "item" then label:SetJustifyH("RIGHT") end
         self.headers[entry[1]] = label
     end
+    self.sorter = K.Sorter(f, self.headers, function() self.scroll.offset = 0; self:Render() end)
     self.scroll = K.TableScroll(f, function() self:Render() end, 80, 56, 24)
     for i = 1, 40 do
         local row = K.MarketRow:New(f, function(id) self:SetProps({id = id}) end)

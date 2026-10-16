@@ -121,6 +121,34 @@ function UI:Prices()
     end
     return (self.showPrices and 118 + math.ceil(#ids / columns) * 32 or 116) + 48
 end
+function UI:Outcomes(estimate)
+    local K, outputs = ns.TradeKit, estimate and estimate.outputs or {}
+    local room = math.max(1, math.floor(((self.inspector.body:GetHeight() or 374) - 172 - 40) / 46))
+    for i, card in ipairs(self.cards) do
+        local output = outputs[i]
+        if output and i <= room then
+            card.frame:ClearAllPoints()
+            card.frame:SetPoint("TOPLEFT", self.inspector.body, "TOPLEFT", 12, -(172 + (i - 1) * 46))
+            local _, _, quality, _, _, _, _, _, _, icon = ns.Compat.ItemInfo(output.id)
+            card.icon:SetTexture(icon)
+            card.name:SetText(ns.Markets.Name(output.id))
+            if quality and type(GetItemQualityColor) == "function" then
+                local r, g, b = GetItemQualityColor(quality); card.name:SetTextColor(r, g, b)
+            else card.name:SetTextColor(unpack(K.theme.text)) end
+            local range = output.minCount == output.maxCount and tostring(output.minCount)
+                or output.minCount .. "-" .. output.maxCount
+            card.amount:SetText(ns.T("deCardCount", range))
+            local share = output.chance
+            card.fill:SetWidth(math.max(2, math.floor(self.cardBar * share + 0.5)))
+            local tone = share >= 0.5 and {0.4, 0.8, 0.5} or (share >= ns.Disenchant.RARE and {0.3, 0.56, 0.8} or {0.72, 0.45, 0.9})
+            card.fill:SetVertexColor(tone[1], tone[2], tone[3], 1)
+            card.chance:SetText(string.format("%g%%", share * 100))
+            card.line:SetText(ns.T("deCardLine", K.Money(output.price), string.format("%.3g", output.quantity),
+                K.Money(output.price and output.quantity * output.price)))
+            card.frame:Show()
+        else card.frame:Hide() end
+    end
+end
 function UI:Spread(estimate)
     local bar, K = self.spread, ns.TradeKit
     local known = estimate and estimate.low ~= nil and estimate.margin ~= nil
@@ -151,7 +179,12 @@ end
 function UI:Render()
     if not self.frame then return end
     local K, selected = ns.TradeKit
-    local rows = ns.Disenchant.Rows(self.group, self.fee, self.selling)
+    local rows = self.sorter:Apply(ns.Disenchant.Rows(self.group, self.fee, self.selling), {
+        item = function(entry) return ns.Markets.Name(entry.id) end,
+        price = function(entry) return entry.cost end,
+        margin = function(entry) return entry.estimate.margin end,
+        units = function(entry) return entry.units end,
+    })
     local progress = ns.Disenchant.Progress(self.group)
     local progressText
     if progress then
@@ -171,6 +204,7 @@ function UI:Render()
         label:ClearAllPoints(); label:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10 + columns[key][1], -(top - 20))
         label:SetWidth(columns[key][2])
     end
+    self.sorter:Mark()
     self.headerBand:ClearAllPoints()
     self.headerBand:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 8, -(top - 25))
     self.headerBand:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -302, -(top - 25))
@@ -213,24 +247,22 @@ function UI:Render()
     end
     if selected then
         self.inspector:SetProps({id = selected.id}); self.item:Show()
-        local estimate, lines = selected.estimate, {}
-        for _, output in ipairs(estimate.outputs) do
-            local amount = output.minCount == output.maxCount and tostring(output.minCount)
-                or output.minCount .. "-" .. output.maxCount
-            lines[#lines + 1] = ns.T("deOutput", string.format("%g", output.chance * 100), amount,
-                ns.Markets.Name(output.id), output.quantity, K.Money(output.price))
-        end
+        local estimate = selected.estimate
         self:Spread(estimate)
+        self:Outcomes(estimate)
+        self.freshNote:SetText(estimate.fresh and "" or ns.T("deStale"))
         self.summary:SetText(ns.T("deSummary", K.Money(selected.cost), K.Money(estimate.net), K.Money(estimate.margin))
-            .. "\n" .. ns.T("deDepositSummary", self.selling.hours, K.Money(estimate.deposit), self.selling.losses, K.Money(estimate.reserve))
-            .. "\n\n" .. table.concat(lines, "\n") .. "\n\n" .. ns.T(estimate.fresh and "deFresh" or "deStale"))
-    else self.inspector:Clear(); self:Spread(nil); self.summary:SetText(ns.T(progress and "deRunningGuide" or "deIntro")) end
+            .. "\n" .. ns.T("deDepositSummary", self.selling.hours, K.Money(estimate.deposit), self.selling.losses, K.Money(estimate.reserve)))
+    else
+        self.inspector:Clear(); self:Spread(nil); self:Outcomes(nil); self.freshNote:SetText("")
+        self.summary:SetText(ns.T(progress and "deRunningGuide" or "deIntro"))
+    end
     self.feeButton:SetText(ns.T("tradeFee", math.floor(self.fee * 100 + 0.5)))
     self.preview = ns.Disenchant.PurchasePlan(self.group, {fee = self.fee, selling = self.selling, percent = self.buyPercent})
     self.buyPreview:SetText(ns.T("deBuyPreview", self.preview.count, K.Money(self.preview.cost)))
     if ns.Disenchant.purchase then self.status:SetText(ns.T("deBuyStage", ns.Disenchant.purchase.index,
         #ns.Disenchant.purchase.plan.items, ns.Buy.state.bought, K.Money(ns.Buy.state.spent))) end
-    self.summary:SetHeight(math.max(60, (self.inspector.body:GetHeight() or 374) - 144))
+    self.summary:SetHeight(selected and 66 or math.max(60, (self.inspector.body:GetHeight() or 374) - 144))
     self:Controls()
 end
 function UI:New(parent)
@@ -276,6 +308,7 @@ function UI:New(parent)
         self.headers[entry[1]] = K.Label(f, ns.T(entry[2]), 0, -38, 100)
         if entry[1] ~= "item" then self.headers[entry[1]]:SetJustifyH("RIGHT") end
     end
+    self.sorter = K.Sorter(f, self.headers, function() self.scroll.offset = 0; self:Render() end)
     self.scroll = K.TableScroll(f, function() self:Render() end, 80, 56, 29)
     for i = 1, 40 do
         local row = K.MarketRow:New(f, function(id) self.selected = id; self:Render() end)
@@ -313,9 +346,9 @@ function UI:New(parent)
     local panel = self.inspector.body
     self.item = self.inspector.item
     local bar = {frame = ns.NewFrame("Frame", nil, panel), width = 216}
-    bar.frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -64)
+    bar.frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -60)
     bar.frame:SetWidth(bar.width); bar.frame:SetHeight(10); bar.frame:EnableMouse(true)
-    bar.title = K.Label(panel, "", 12, -48, 240)
+    bar.title = K.Label(panel, "", 12, -44, 240)
     bar.title:SetTextColor(unpack(K.theme.secondary))
     local function part(layer, color)
         local texture = bar.frame:CreateTexture(nil, layer)
@@ -327,15 +360,49 @@ function UI:New(parent)
     bar.positive = part("BORDER", {0.4, 1, 0.5, 0.9})
     bar.zero = part("ARTWORK", {1, 1, 1, 1})
     bar.average = part("OVERLAY", {1, 0.82, 0, 1})
-    bar.low = K.Label(panel, "", 12, -78, 116)
-    bar.high = K.Label(panel, "", 124, -78, 116)
+    bar.low = K.Label(panel, "", 12, -73, 116)
+    bar.high = K.Label(panel, "", 124, -73, 116)
     bar.high:SetJustifyH("RIGHT")
-    bar.percent = K.Label(panel, "", 12, -93, 240)
+    bar.percent = K.Label(panel, "", 12, -86, 240)
     bar.percent:SetTextColor(unpack(K.theme.secondary))
     K.Tooltip(bar.frame, ns.T("deSpreadTitle"), ns.T("deSpreadTip"))
     self.spread = bar
-    self.summary = K.Label(panel, "", 12, -112, 240)
+    self.summary = K.Label(panel, "", 12, -102, 240)
     self.summary:SetHeight(300); self.summary:SetJustifyV("TOP")
+    self.cardBar, self.cards = 118, {}
+    for i = 1, 4 do
+        local card = {frame = ns.NewFrame("Frame", nil, panel)}
+        card.frame:SetWidth(226); card.frame:SetHeight(42)
+        card.frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -(172 + (i - 1) * 46))
+        card.back = card.frame:CreateTexture(nil, "BACKGROUND")
+        card.back:SetAllPoints(card.frame); card.back:SetTexture(K.theme.white)
+        card.back:SetVertexColor(1, 1, 1, 0.05)
+        card.icon = card.frame:CreateTexture(nil, "ARTWORK")
+        card.icon:SetWidth(34); card.icon:SetHeight(34)
+        card.icon:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 4, -4)
+        card.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        card.name = K.Label(card.frame, "", 44, -3, 130)
+        card.name:SetHeight(12)
+        card.amount = card.frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        card.amount:SetPoint("TOPRIGHT", card.frame, "TOPRIGHT", -6, -2)
+        card.amount:SetJustifyH("RIGHT"); card.amount:SetTextColor(unpack(K.theme.gold))
+        card.track = card.frame:CreateTexture(nil, "BORDER")
+        card.track:SetTexture(K.theme.white); card.track:SetVertexColor(1, 1, 1, 0.12)
+        card.track:SetWidth(self.cardBar); card.track:SetHeight(7)
+        card.track:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 44, -18)
+        card.fill = card.frame:CreateTexture(nil, "ARTWORK")
+        card.fill:SetTexture(K.theme.white); card.fill:SetHeight(7)
+        card.fill:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 44, -18)
+        card.chance = K.Label(card.frame, "", 166, -16, 56)
+        card.chance:SetTextColor(unpack(K.theme.secondary))
+        card.line = K.Label(card.frame, "", 44, -29, 178)
+        card.line:SetHeight(12)
+        card.frame:Hide()
+        self.cards[i] = card
+    end
+    self.freshNote = K.Label(panel, "", 12, 0, 200)
+    self.freshNote:ClearAllPoints(); self.freshNote:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 12, 10)
+    self.freshNote:SetHeight(28); self.freshNote:SetTextColor(unpack(K.theme.negative))
     local info = K.Button(panel, ns.T("tradeInfo"), 24, function() end)
     info:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -12, 12)
     K.Tooltip(info, ns.T("deTitle"), ns.T("deModelTip"))

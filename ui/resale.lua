@@ -23,7 +23,13 @@ end
 function UI:Render()
     if not self.frame then return end
     local K, p = ns.TradeKit, self.props
-    local items = ns.Resale.Items(p.profession)
+    local fee = p.fee
+    local items = self.sorter:Apply(ns.Resale.Items(p.profession), {
+        item = function(entry) return ns.Markets.Name(entry.raw) end,
+        price = function(entry) local q = ns.Markets.Quote(entry.raw); return q and q.price end,
+        margin = function(entry) return ns.Resale.Estimate(entry, fee).margin end,
+        units = function(entry) local q = ns.Markets.Quote(entry.raw); return q and q.units end,
+    })
     if not p.id or not ns.Resale.byItem[p.id] or ns.Resale.byItem[p.id].profession ~= p.profession then
         p.id = items[1] and items[1].raw
     end
@@ -36,6 +42,7 @@ function UI:Render()
         label:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10 + columns[key][1], -38)
         label:SetWidth(columns[key][2])
     end
+    self.sorter:Mark()
     for i, row in ipairs(self.rows) do
         local entry = i <= visible and items[offset + i]
         if entry then
@@ -85,6 +92,7 @@ function UI:New(parent)
         if entry[1] ~= "item" then label:SetJustifyH("RIGHT") end
         self.headers[entry[1]] = label
     end
+    self.sorter = K.Sorter(f, self.headers, function() self.scroll.offset = 0; self:Render() end)
     self.scroll = K.TableScroll(f, function() self:Render() end, 56, 56, 29)
     for i = 1, 40 do
         local row = K.MarketRow:New(f, function(id) self:SetProps({id = id}) end)
