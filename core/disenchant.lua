@@ -18,7 +18,33 @@ for i = 1, 4 do
     end
 end
 function D.Group(key)
+    if D.targetGroups and D.targetGroups[key] then return D.targetGroups[key] end
     for _, group in ipairs(D.groups) do if group.key == key then return group end end
+    local target, targetMask = key:match("^target(%d+)_(%d+)$")
+    if target then
+        local id, qualities, minimum, maximum, found = tonumber(target), {}, 4, 0, false
+        for digit in targetMask:gmatch("%d") do
+            local quality = tonumber(digit)
+            if quality < 2 or quality > 4 then return nil end
+            qualities[quality], minimum = true, math.min(minimum, quality)
+        end
+        local group = {key = key, base = "target" .. target, labelKey = "deTargetMode",
+            targetID = id, qualities = qualities, quality = minimum, minLevel = 0, maxLevel = 80}
+        for _, band in ipairs(ns.disenchantBands) do
+            if D.Matches(group, band) then
+                found = true; maximum = math.max(maximum, band.maxRequiredLevel or 80)
+            end
+        end
+        if not found then
+            local valid = false
+            for _, material in ipairs(ns.disenchantMaterials) do if id == material then valid = true end end
+            if not valid then return nil end
+        end
+        group.maxLevel = found and maximum or 80
+        D.targetGroups = D.targetGroups or {}
+        D.targetGroups[key] = group
+        return group
+    end
     local base, mask = key:match("^(%a+)_(%d+)$")
     if not base then return nil end
     local source = D.Group(base)
@@ -40,12 +66,32 @@ function D.Selection(base, qualities)
     local mask = ""
     for quality = 2, 4 do if qualities[quality] then mask = mask .. quality end end
     if mask == "" then return nil end
+    if base:match("^target%d+$") then return base .. "_" .. mask end
     return mask == "2" and base or base .. "_" .. mask
 end
 function D.Matches(group, band)
+    if group.targetID then
+        return D.HasQuality(group, band.quality or 2) and D.Output(band, group.targetID) ~= nil
+    end
     local kind = group.classIndex == 1 and "weapon" or "armor"
     return band.expansion == group.expansion and D.HasQuality(group, band.quality or 2)
         and (band.kind == kind or band.kind == "any" or (group.classIndex == 2 and (band.quality or 2) == 2))
+end
+function D.Output(band, id)
+    for _, output in ipairs(band and band.outputs or {}) do
+        if output.itemID == id and output.chance > 0 then return output end
+    end
+end
+function D.Accepts(group, meta)
+    if not group or not meta or not D.HasQuality(group, meta.quality or 2) then return false end
+    local band = D.Band(meta.band)
+    if group.targetID then return D.Output(band, group.targetID) ~= nil end
+    return band and band.expansion == group.expansion and meta.classIndex == group.classIndex
+end
+function D.TargetItems()
+    local out = {}
+    for _, id in ipairs(ns.disenchantMaterials) do out[#out + 1] = {raw = id} end
+    return out
 end
 function D.Materials(key)
     local ids, seen, group = {}, {}, D.Group(key)
@@ -79,6 +125,7 @@ function D.Quote(id)
     return {price = value, miss = 0, complete = true, manual = true, at = time()}
 end
 function D.Candidate(id, link)
+    if ns.disenchantExcluded and ns.disenchantExcluded[id] then return false end
     local name, _, quality, level, required, class, _, _, equip = ns.Compat.ItemInfo(link or id)
     if not name or not quality or not level or not class then return nil end
     if quality < 2 or quality > 4 or not GetAuctionItemClasses then return false end
@@ -86,13 +133,18 @@ function D.Candidate(id, link)
     local kind = class == classes[1] and "weapon" or (class == classes[2] and "armor")
     if not kind or equip == "INVTYPE_BAG" or equip == "INVTYPE_BODY" or equip == "INVTYPE_TABARD"
         or equip == "INVTYPE_QUIVER" or equip == "" then return false end
-    local override = quality == 2 and ns.disenchantOverrides[id] or nil
+    local override = ns.disenchantOverrides[id]
+    if override and override.band then
+        if level ~= override.level or quality ~= override.quality then return false end
+        return {band = override.band, level = level, skill = override.skill,
+            classIndex = class == classes[1] and 1 or 2, required = required, quality = quality}
+    end
     if equip == "INVTYPE_SHIELD" or equip == "INVTYPE_HOLDABLE" then
         if quality == 2 and not override then return false end
         if override then kind = override.kind end
     end
     for _, band in ipairs(ns.disenchantBands) do
-        if (band.quality or 2) == quality and (band.kind == kind or band.kind == "any")
+        if not band.exactOnly and (band.quality or 2) == quality and (band.kind == kind or band.kind == "any")
             and level >= band.minLevel and level <= band.maxLevel
             and (not override or override.lootId == band.lootId) then
             return {band = band.key, level = level, skill = override and override.skill or band.skill,
@@ -102,7 +154,11 @@ function D.Candidate(id, link)
     return false
 end
 function D.Band(key)
-    for _, band in ipairs(ns.disenchantBands) do if band.key == key then return band end end
+    if not D.byBand then
+        D.byBand = {}
+        for _, band in ipairs(ns.disenchantBands) do D.byBand[band.key] = band end
+    end
+    return D.byBand[key]
 end
 function D.Spread(result, fee, cost)
     local low, high
@@ -182,13 +238,13 @@ function D.Progress(key)
     end
     return nil
 end
-function D.Rows(key, fee, selling)
+function D.Rows(key, fee, selling, minItemLevel)
     local progress = D.Progress(key)
     local scan, entries = progress and progress.scan or D.Snapshot(key), {}
     for _, text in ipairs(scan and scan.lots or {}) do
         local lot = ns.Lot.Decode(text)
         local meta = lot and scan.disenchantItems[lot.item]
-        if meta and lot.count > 0 and lot.buyout > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player") then
+        if meta and D.Accepts(D.Group(key), meta) and meta.level >= (minItemLevel or 0) and lot.count > 0 and lot.buyout > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player") then
             local row = entries[lot.item] or {id = lot.item, units = 0, lots = 0, meta = meta}
             row.cost = math.min(row.cost or math.huge, lot.buyout / lot.count)
             row.units, row.lots = row.units + lot.count, row.lots + 1
@@ -198,6 +254,8 @@ function D.Rows(key, fee, selling)
     local result = {}
     for _, row in pairs(entries) do
         row.estimate = D.Estimate(D.Band(row.meta.band), row.cost, fee, nil, selling)
+        local group = D.Group(key)
+        row.target = group.targetID and D.Output(D.Band(row.meta.band), group.targetID) or nil
         result[#result + 1] = row
     end
     table.sort(result, function(a, b)
@@ -213,9 +271,10 @@ function D.Rows(key, fee, selling)
 end
 function D.Scan(key, force, options)
     local group, sources = D.Group(key), {}
-    if not group or not GetAuctionItemClasses or not ({GetAuctionItemClasses()})[group.classIndex] then
+    if not group or not GetAuctionItemClasses or (not group.targetID and not ({GetAuctionItemClasses()})[group.classIndex]) then
         ns.say(ns.T("deNoClasses")); return false
     end
+    if group.targetID and #D.Materials(key) == 0 then ns.say(ns.T("deTargetNoBands")); return false end
     for _, id in ipairs(D.Materials(key)) do
         if not (D.Quote(id) and D.Quote(id).manual) then sources[#sources + 1] = id end
     end
@@ -247,9 +306,11 @@ function D.Prepare(scan)
     scan.dePercent = percent
 end
 function D.Sort(scan)
-    if not scan.deLimit or scan.deCutDisabled then return end
     if type(SortAuctionClearSort) ~= "function" or type(SortAuctionSetSort) ~= "function"
-        or type(GetAuctionSort) ~= "function" then scan.deCutDisabled = "sort"; return end
+        or type(GetAuctionSort) ~= "function" then
+        if scan.deOptions and scan.deOptions.cut then scan.deCutDisabled = scan.deCutDisabled or "sort" end
+        return
+    end
     if not scan.deOriginalSort then
         scan.deOriginalSort = {}
         for i = 1, 10 do
@@ -281,15 +342,22 @@ function D.CheckTail(scan, batch)
     local minimum, previous = math.huge, scan.deLastPrice or 0
     for i = 1, batch do
         local _, _, count, _, _, _, _, _, buyout = GetAuctionItemInfo("list", i)
-        if not count or count ~= 1 or not buyout or buyout < previous or (buyout == 0 and previous > 0) then
-            scan.deCutDisabled = "order"; return false
+        if not count or count <= 0 or not buyout then scan.deCutDisabled = "missing"; return false end
+        if buyout > 0 then
+            if buyout < previous then scan.deCutDisabled = "order"; return false end
+            if count ~= 1 then
+                local id = ns.Lot.FromLink(GetAuctionItemLink("list", i))
+                local meta = id and ns.Disenchant.Candidate(id, GetAuctionItemLink("list", i))
+                if meta == nil then scan.deCutDisabled = "missing"; return false end
+                if D.Accepts(D.Group(scan.deGroup), meta) then scan.deCutDisabled = "stack"; return false end
+            end
+            previous = buyout
+            minimum = math.min(minimum, buyout)
         end
-        previous = buyout
-        minimum = math.min(minimum, buyout)
     end
     scan.deLastPrice = previous
     if (scan.miss or 0) > 0 then scan.deCutDisabled = "missing"; return false end
-    scan.deTailPages = minimum > scan.deLimit and (scan.deTailPages or 0) + 1 or 0
+    scan.deTailPages = minimum < math.huge and minimum > scan.deLimit and (scan.deTailPages or 0) + 1 or 0
     return scan.deTailPages >= 2
 end
 function D.PurchasePlan(key, options)
@@ -297,7 +365,7 @@ function D.PurchasePlan(key, options)
     for _, text in ipairs(scan and scan.lots or {}) do
         local lot = ns.Lot.Decode(text)
         local meta = lot and scan.disenchantItems[lot.item]
-        if meta and lot.buyout > 0 and lot.count > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player") then
+        if meta and D.Accepts(D.Group(key), meta) and meta.level >= (options.minItemLevel or 0) and lot.buyout > 0 and lot.count > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player") then
             local e = D.Estimate(D.Band(meta.band), lot.buyout / lot.count, options.fee, nil, options.selling)
             if e.fresh and e.percent and e.percent > options.percent then
                 lots[#lots + 1] = {lot = lot, percent = e.percent}
@@ -339,8 +407,7 @@ local function nextPurchase()
         local id = ns.Lot.FromLink(GetAuctionItemLink("list", index))
         local _, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", index)
         local meta = id and D.Candidate(id, GetAuctionItemLink("list", index))
-        if not meta or not D.HasQuality(group, meta.quality or 2) or meta.classIndex ~= group.classIndex
-            or D.Band(meta.band).expansion ~= group.expansion or not count or count <= 0
+        if not meta or meta.level < (options.minItemLevel or 0) or not D.Accepts(group, meta) or not count or count <= 0
             or not buyout or buyout <= 0 or not owner or owner == "" or owner == UnitName("player") then return false end
         local estimate = D.Estimate(D.Band(meta.band), buyout / count, options.fee, nil, options.selling)
         return estimate.fresh and estimate.percent and estimate.percent > options.percent

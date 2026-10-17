@@ -45,8 +45,9 @@ local function readOne(i)
         local meta = ns.Disenchant.Candidate(item, GetAuctionItemLink("list", i))
         if meta == nil then return false end
         if meta == false then return true end
-        local band, group = ns.Disenchant.Band(meta.band), ns.Disenchant.Group(S.scan.deGroup)
-        if not ns.Disenchant.HasQuality(group, meta.quality or 2) or band.expansion ~= group.expansion or meta.classIndex ~= group.classIndex
+        local group = ns.Disenchant.Group(S.scan.deGroup)
+        if not ns.Disenchant.Accepts(group, meta)
+            or meta.level < ((S.scan.deOptions and S.scan.deOptions.minItemLevel) or 0)
             or (meta.required and (meta.required < group.minLevel or meta.required > group.maxLevel)) then return true end
         S.scan.disenchantItems[item] = meta
     end
@@ -91,6 +92,7 @@ local function finish()
     S.phase, S.scan = "idle", nil
     status("stDone", scan.total)
     ns.say(ns.T("sayDone", scan.total, scan.secs))
+    if scan.deCutStopped then ns.say(ns.T("deCutStopped", ns.T("deCutReason" .. scan.deCutStopped))) end
     if S.miss > 0 then ns.say(ns.T("sayMiss", S.miss)) end
     if S.mode == "all" and S.expect > scan.total + S.miss then
         ns.say(ns.T("sayCut", scan.total + S.miss, S.expect))
@@ -173,8 +175,10 @@ local function readPage(now)
     if S.scan.scope == "disenchant" then
         S.scan.miss = S.miss
         local cut = ns.Disenchant.CheckTail(S.scan, batch)
-        if cut and S.page < S.pages then
-            S.scan.truncated, S.scan.deCut, S.scan.deReadPages = true, true, S.page
+        local blocked = S.scan.deOptions and S.scan.deOptions.cut and S.scan.deCutDisabled
+        if (cut or blocked) and S.page < S.pages then
+            S.scan.truncated, S.scan.deCut, S.scan.deReadPages = true, cut or nil, S.page
+            S.scan.deCutStopped = blocked or nil
             return finish()
         end
     end
@@ -261,6 +265,7 @@ function Scan.Start(mode, target)
             S.scan.classIndex, S.scan.minLevel, S.scan.maxLevel, S.scan.minQuality = target.classIndex,
                 target.minLevel, target.maxLevel, target.minQuality
             S.scan.deOptions = target.deOptions
+            S.scan.deTarget = ns.Disenchant.Group(target.deGroup).targetID
             ns.Disenchant.Prepare(S.scan)
         end
     end

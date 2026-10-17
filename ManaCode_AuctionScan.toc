@@ -4,7 +4,7 @@
 ## Notes: Full auction house scan saved for outside analysis.
 ## Notes-ruRU: Полный скан аукциона для анализа вне игры
 ## Author: Manacode
-## Version: 0.4.0
+## Version: 0.5.0
 ## SavedVariables: AuctionScanDB
 
 compat\wotlk.lua
@@ -15,6 +15,7 @@ locale\enchanting_ru.lua
 locale\tailoring_ru.lua
 locale\blacksmithing_ru.lua
 locale\vendor_recipes_ru.lua
+locale\leveling_ru.lua
 
 core\lot.lua
 core\store.lua
@@ -31,6 +32,7 @@ data\vendor_recipes.lua
 data\disenchanting.lua
 data\seasonal.lua
 data\shared.lua
+data\leveling_enchanting.lua
 core\markets.lua
 core\shared.lua
 core\activity.lua
@@ -44,6 +46,7 @@ core\craft_plan.lua
 core\disenchant.lua
 core\collections.lua
 core\hidden.lua
+core\leveling.lua
 
 ui\button.lua
 ui\kit.lua
@@ -59,4 +62,5 @@ ui\resale.lua
 ui\disenchant.lua
 ui\collections.lua
 ui\hidden.lua
+ui\leveling.lua
 ui\trader.lua

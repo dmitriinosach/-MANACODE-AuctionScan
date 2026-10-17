@@ -863,6 +863,143 @@ function MarketRow:Render()
     self.detail:SetTextColor(unpack(K.theme.secondary))
     if p.noRefresh or (p.quote and p.quote.vendor) then self.refresh:Hide() else self.refresh:Show() end
 end
+local LevelingRow = {}
+LevelingRow.__index = LevelingRow
+K.LevelingRow = LevelingRow
+function LevelingRow:New(parent, action, expand)
+    local view = setmetatable({}, self)
+    view.frame = K.Navigation(parent, "", function() action(view.props, false) end)
+    view.frame:SetHeight(38)
+    view.icon = view.frame:CreateTexture(nil, "ARTWORK")
+    view.icon:SetWidth(24); view.icon:SetHeight(24)
+    view.name = view.frame.text
+    view.detail = K.Label(view.frame, "", 30, -21, 200)
+    view.detail:SetHeight(12); view.detail:SetTextColor(unpack(K.theme.secondary))
+    view.quantity = K.Label(view.frame, "", 0, -5, 120)
+    view.quantity:SetJustifyH("RIGHT")
+    view.cost = K.Label(view.frame, "", 0, -5, 124)
+    view.cost:SetJustifyH("RIGHT")
+    view.button = K.Button(view.frame, "", 90, function() action(view.props, true) end, "quiet")
+    view.button:SetPoint("RIGHT", view.frame, "RIGHT", -4, 0)
+    view.expand = K.Button(view.frame, "+", 22, function() expand(view.props) end, "quiet")
+    view.frame:SetScript("OnEnter", function(frame)
+        local p = view.props
+        GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+        if p.id then GameTooltip:SetHyperlink("item:" .. p.id)
+        elseif p.spell then GameTooltip:SetHyperlink("spell:" .. p.spell)
+        else GameTooltip:AddLine(p.label, unpack(K.theme.text)) end
+        if p.tip then GameTooltip:AddLine(p.tip, K.theme.gold[1], K.theme.gold[2], K.theme.gold[3], true) end
+        GameTooltip:Show()
+    end)
+    view.frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return view
+end
+function LevelingRow:SetProps(props)
+    self.props = props; self:Render()
+end
+function LevelingRow:Render()
+    local p, width = self.props, self.props.width
+    self.frame:SetWidth(width)
+    local offset = 28 + (p.depth or 0) * 14
+    self.icon:ClearAllPoints(); self.icon:SetPoint("LEFT", self.frame, "LEFT", offset, 0)
+    self.name:ClearAllPoints(); self.name:SetPoint("TOPLEFT", self.frame, "TOPLEFT", offset + 28, -4)
+    self.detail:ClearAllPoints(); self.detail:SetPoint("TOPLEFT", self.frame, "TOPLEFT", offset + 28, -21)
+    self.name:SetWidth(math.max(40, width - offset - 388))
+    self.detail:SetWidth(math.max(40, width - offset - 388))
+    local name, icon
+    if p.id then name, icon = ns.Markets.Name(p.id), select(10, ns.Compat.ItemInfo(p.id))
+    elseif p.spell then
+        name, icon = ns.Compat.SpellIcon(p.spell)
+        name = name or ns.T("levelSpell", p.spell)
+    else name = p.label end
+    self.name:SetText(name); self.icon:SetTexture(icon)
+    self.name:SetTextColor(unpack(K.theme[p.active and "gold" or "text"]))
+    if p.active then self.frame.selected:Show() else self.frame.selected:Hide() end
+    self.detail:SetText(p.detail or "")
+    self.quantity:ClearAllPoints(); self.quantity:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -230, -6)
+    self.quantity:SetText(p.quantity or "")
+    self.cost:ClearAllPoints(); self.cost:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -100, -6)
+    self.cost:SetText(p.costText or K.Money(p.cost))
+    self.button:SetText(p.action or "")
+    if p.action then self.button:Show() else self.button:Hide() end
+    self.expand:ClearAllPoints(); self.expand:SetPoint("LEFT", self.frame, "LEFT", offset - 26, 0)
+    self.expand:SetText(p.opened and "-" or "+")
+    if p.expandable then self.expand:Show() else self.expand:Hide() end
+    self.frame:Show()
+end
+local OutcomeList = {}
+OutcomeList.__index = OutcomeList
+K.OutcomeList = OutcomeList
+function OutcomeList:New(parent)
+    local view = setmetatable({cards = {}}, self)
+    view.frame = ns.NewFrame("Frame", nil, parent)
+    view.frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, -172)
+    view.frame:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -10, 40)
+    view.scroll = K.Scroller:New(view.frame, function() view:Render() end, 46)
+    view.scroll.frame:SetAllPoints(view.frame)
+    for i = 1, 4 do
+        local card = {}
+        card.frame = K.ItemChoice(view.frame, function() end)
+        card.frame:SetHeight(42)
+        card.back = card.frame:CreateTexture(nil, "BACKGROUND")
+        card.back:SetAllPoints(card.frame); card.back:SetTexture(K.theme.white)
+        card.back:SetVertexColor(unpack(K.theme.row))
+        card.icon, card.name = card.frame.icon, card.frame.text
+        card.icon:SetWidth(34); card.icon:SetHeight(34)
+        card.icon:ClearAllPoints(); card.icon:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 4, -4)
+        card.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        card.name:ClearAllPoints(); card.name:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 44, -3)
+        card.name:SetWidth(130); card.name:SetHeight(12)
+        card.amount = K.Label(card.frame, "", 0, 0, 100, "heading")
+        card.amount:ClearAllPoints(); card.amount:SetPoint("TOPRIGHT", card.frame, "TOPRIGHT", -6, -2)
+        card.amount:SetJustifyH("RIGHT")
+        card.track = card.frame:CreateTexture(nil, "BORDER")
+        card.track:SetTexture(K.theme.white); card.track:SetVertexColor(unpack(K.theme.chart.axis))
+        card.track:SetHeight(7); card.track:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 44, -18)
+        card.fill = card.frame:CreateTexture(nil, "ARTWORK")
+        card.fill:SetTexture(K.theme.white); card.fill:SetHeight(7)
+        card.fill:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 44, -18)
+        card.chance = K.Label(card.frame, "", 0, -16, 56)
+        card.chance:ClearAllPoints(); card.chance:SetPoint("TOPRIGHT", card.frame, "TOPRIGHT", -4, -16)
+        card.line = K.Label(card.frame, "", 44, -29, 178); card.line:SetHeight(12)
+        card.frame:Hide(); view.cards[i] = card
+        view.scroll:Wheel(card.frame)
+    end
+    return view
+end
+function OutcomeList:SetProps(props)
+    if not self.props or self.props.source ~= props.source or self.props.target ~= props.target then self.scroll.offset = 0 end
+    self.props = props; self:Render()
+end
+function OutcomeList:Render()
+    if not self.props then return end
+    local width = (self.frame:GetWidth() or 244) - 18
+    local barWidth = math.max(30, width - 108)
+    local visible = math.max(0, math.min(#self.cards, math.floor((self.frame:GetHeight() or 184) / 46)))
+    local outputs = self.props.outputs or {}
+    local offset = self.scroll:SetRange(#outputs, visible)
+    for i, card in ipairs(self.cards) do
+        local output = i <= visible and outputs[offset + i]
+        if output then
+            card.frame:ClearAllPoints(); card.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, -(i - 1) * 46)
+            card.frame:SetWidth(width)
+            K.SetItemChoice(card.frame, output.id, output.id == self.props.target)
+            local range = output.minCount == output.maxCount and tostring(output.minCount)
+                or output.minCount .. "-" .. output.maxCount
+            card.amount:SetText(ns.T("deCardCount", range))
+            card.name:SetWidth(math.max(50, width - 140))
+            card.track:SetWidth(barWidth); card.fill:SetWidth(math.max(2, math.floor(barWidth * output.chance + 0.5)))
+            local color = output.chance >= 0.5 and K.theme.chart.added
+                or (output.chance >= 0.05 and K.theme.chart.supply or K.theme.chart.late)
+            card.fill:SetVertexColor(unpack(color))
+            card.chance:SetText(string.format("%g%%", output.chance * 100))
+            card.line:SetWidth(math.max(40, width - 48))
+            card.line:SetText(ns.T("deCardLine", K.Money(output.price), string.format("%.3g", output.quantity),
+                K.Money(output.price and output.quantity * output.price)))
+            card.frame.extraTip = output.id == self.props.target and ns.T("deTargetOutcome") or ns.T("deOtherOutcome")
+        else card.frame:Hide() end
+    end
+end
 local Chart = {}
 Chart.__index = Chart
 K.PriceChart = Chart

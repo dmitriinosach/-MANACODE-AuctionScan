@@ -10,7 +10,8 @@ function UI.Ready()
         and ns.Reagents and ns.ReagentsUI and ns.Resale and ns.ResaleUI and ns.CraftPlan and ns.AuctionWindow
         and ns.Activity and ns.Disenchant and ns.DisenchantUI and ns.MarketBoardUI
         and ns.Collections and ns.CollectionsUI and ns.Hidden and ns.HiddenUI
-        and ns.seasonalEvents and ns.OfferPreview then return true end
+        and ns.seasonalEvents and ns.OfferPreview and ns.Leveling and ns.LevelingUI
+        and ns.levelingCatalogs and ns.levelingCatalogs.enchanting then return true end
     if not UI.warned then
         UI.warned = true
         ns.say(ns.T("tradeRestartRequired"))
@@ -44,6 +45,10 @@ function UI.Status(text)
         ns.CollectionsUI.status:SetText(text)
         if UI.section == "collections" then ns.CollectionsUI:Render() end
     end
+    if ns.LevelingUI and ns.LevelingUI.frame then
+        ns.LevelingUI.status:SetText(text)
+        if UI.section == "leveling" then ns.LevelingUI:Render() else ns.LevelingUI:Controls() end
+    end
 end
 function UI.Refresh()
     if UI.frame then UI:Render() end
@@ -60,12 +65,14 @@ function UI:ShowSection(section)
     self.disenchant:Hide()
     self.collections:Hide()
     self.hiddenView:Hide()
+    self.leveling:Hide()
     self.buyView.frame:Hide()
     if section == "buy" then self.buyView.frame:Show()
     elseif section == "reagents" then self.reagents:Show()
     elseif section == "disenchant" then self.disenchant:Show()
     elseif section == "collections" then self.collections:Show()
     elseif section == "hidden" then self.hiddenView:Show()
+    elseif section == "leveling" then self.leveling:Show()
     elseif self.professionModes[section] == "resale" then
         ns.ResaleUI:SetProps({profession = section})
         self.resale:Show()
@@ -81,8 +88,9 @@ function UI:ShowSection(section)
     self.nav.disenchant:SetActive(section == "disenchant")
     self.nav.collections:SetActive(section == "collections")
     self.nav.hidden:SetActive(section == "hidden")
+    self.nav.leveling:SetActive(section == "leveling")
     self.professionMenu.frame:SetActive(section ~= "buy" and section ~= "reagents" and section ~= "disenchant"
-        and section ~= "collections" and section ~= "hidden")
+        and section ~= "collections" and section ~= "hidden" and section ~= "leveling")
     UI.Refresh()
 end
 function UI.SetProfessionMode(profession, mode)
@@ -110,15 +118,22 @@ function UI.OpenReagent(id, fee)
     UI:ShowSection("reagents")
     ns.ReagentsUI:SetProps({id = id, fee = fee})
 end
-function UI.OpenBuy(id)
+function UI.OpenBuy(id, need)
     if ns.vendorPrices and ns.vendorPrices[id] then ns.say(ns.T("cacheVendor")); return end
     local name = ns.Compat.ItemInfo(id)
     if not name then ns.say(ns.T("tradeUnknownItem")); return end
     UI:ShowSection("buy")
+    if need then
+        if need > 1000 then ns.say(ns.T("levelBuyBatch", need)); need = 1000 end
+        ns.Shopping.Reset()
+        ns.Shopping.SetNeed(need)
+        UI.buyView.pendingNeed = nil
+    end
     UI.buyView.query:SetText(name)
     ns.Shopping.Search(name, id)
 end
 function UI:Render()
+    self:LayoutNavigation()
     if ns.FamilyUI then ns.FamilyUI:Render() end
     if ns.AlchemyUI then ns.AlchemyUI:Render() end
     if ns.ReagentsUI then ns.ReagentsUI:Render() end
@@ -126,7 +141,25 @@ function UI:Render()
     if ns.DisenchantUI then ns.DisenchantUI:Render() end
     if ns.CollectionsUI then ns.CollectionsUI:Render() end
     if ns.HiddenUI then ns.HiddenUI:Render() end
+    if ns.LevelingUI then ns.LevelingUI:Render() end
     if ns.OfferPreview and ns.OfferPreview.frame and ns.OfferPreview.frame:IsShown() then ns.OfferPreview:Render() end
+end
+function UI:LayoutNavigation()
+    if not self.frame or not self.content then return end
+    local narrow = (self.frame:GetWidth() or 996) < 960
+    if self.narrowNav == narrow then return end
+    self.narrowNav = narrow
+    self.nav.leveling:ClearAllPoints(); self.complete:ClearAllPoints()
+    if narrow then
+        self.nav.leveling:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 6, -30)
+        self.complete:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -6, -30)
+    else
+        self.nav.leveling:SetPoint("LEFT", self.nav.hidden, "RIGHT", 6, 0)
+        self.complete:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -6, -2)
+    end
+    self.content:ClearAllPoints()
+    self.content:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, narrow and -58 or -30)
+    self.content:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", 0, 0)
 end
 function UI:New(parent)
     if not UI.Ready() then return nil end
@@ -149,7 +182,7 @@ function UI:New(parent)
     self.title:ClearAllPoints()
     self.title:SetPoint("TOP", parent, "TOP", 0, -18)
     self.title:SetJustifyH("CENTER")
-    local purchase = K.Button(root, ns.T("buySection"), 100, function() self:ShowSection("buy") end, "quiet")
+    local purchase = K.Button(root, ns.T("buySection"), 80, function() self:ShowSection("buy") end, "quiet")
     self.nav.buy = purchase
     purchase:SetPoint("TOPLEFT", root, "TOPLEFT", 6, -2)
     local professions = {{key = "jewelry", labelKey = "jewelrySection"}}
@@ -157,17 +190,19 @@ function UI:New(parent)
         if ns.craftCatalogs[key] then professions[#professions + 1] = {key = key, labelKey = ns.craftCatalogs[key].labelKey} end
     end
     self.professionMenu = K.Menu(root, professions, UI.OpenProfession)
+    self.professionMenu.frame:SetWidth(140)
     self.professionMenu.frame:SetPoint("LEFT", purchase, "RIGHT", 6, 0)
-    local reagentTab = K.Button(root, ns.T("reagentsSection"), 100, function() self:ShowSection("reagents") end, "quiet")
+    local reagentTab = K.Button(root, ns.T("reagentsSection"), 80, function() self:ShowSection("reagents") end, "quiet")
     self.nav.reagents = reagentTab
     reagentTab:SetPoint("LEFT", self.professionMenu.frame, "RIGHT", 6, 0)
-    local disenchantTab = K.Button(root, ns.T("deTitle"), 90, function() self:ShowSection("disenchant") end, "quiet")
+    local disenchantTab = K.Button(root, ns.T("deTitle"), 85, function() self:ShowSection("disenchant") end, "quiet")
     self.nav.disenchant = disenchantTab
     disenchantTab:SetPoint("LEFT", reagentTab, "RIGHT", 6, 0)
-    self.nav.collections = K.Button(root, ns.T("collectionTitle"), 90, function() self:ShowSection("collections") end, "quiet")
+    self.nav.collections = K.Button(root, ns.T("collectionTitle"), 65, function() self:ShowSection("collections") end, "quiet")
     self.nav.collections:SetPoint("LEFT", disenchantTab, "RIGHT", 6, 0)
-    self.nav.hidden = K.Button(root, ns.T("hiddenSection"), 90, function() self:ShowSection("hidden") end, "quiet")
+    self.nav.hidden = K.Button(root, ns.T("hiddenSection"), 70, function() self:ShowSection("hidden") end, "quiet")
     self.nav.hidden:SetPoint("LEFT", self.nav.collections, "RIGHT", 6, 0)
+    self.nav.leveling = K.Button(root, ns.T("levelTitle"), 145, function() self:ShowSection("leveling") end, "quiet")
     local complete = K.Button(root, ns.T("cacheCompleteAll"), 126, function()
         ns.Batch.All(K.ScanMode()); UI.Refresh()
     end, "main")
@@ -175,8 +210,10 @@ function UI:New(parent)
         return ns.T("cacheCompleteAllTip") .. "\n\n" .. ns.Batch.PreviewText(ns.Batch.AllSources(), true)
     end
     complete:SetPoint("TOPRIGHT", root, "TOPRIGHT", -6, -2)
+    self.complete = complete
     K.Tooltip(complete, ns.T("cacheCompleteAll"), ns.T("cacheCompleteAllTip"))
     local content = ns.NewFrame("Frame", nil, root)
+    self.content = content
     content:SetPoint("TOPLEFT", root, "TOPLEFT", 0, -30)
     content:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", 0, 0)
     self.buyView = ns.ShoppingUI:New(content)
@@ -188,11 +225,14 @@ function UI:New(parent)
     self.disenchant = ns.DisenchantUI:New(content).frame
     self.collections = ns.CollectionsUI:New(content).frame
     self.hiddenView = ns.HiddenUI:New(content).frame
+    self.leveling = ns.LevelingUI:New(content).frame
+    self:LayoutNavigation()
     ns.OfferPreview.New(root)
     self.tab = ns.AuctionPage.Install(root)
     self:ShowSection("buy")
     ns.AuctionWindow.Install(parent)
     root:Hide()
+    root:SetScript("OnSizeChanged", function() self:LayoutNavigation() end)
     return self
 end
 local events = ns.NewFrame("Frame")

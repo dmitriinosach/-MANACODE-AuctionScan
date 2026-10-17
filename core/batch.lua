@@ -112,6 +112,9 @@ function B.AllSources()
     if ns.Resale then
         for _, id in ipairs(ns.Resale.Targets()) do sources[#sources + 1] = id end
     end
+    if ns.Leveling then
+        for _, id in ipairs(ns.Leveling.Targets(nil, true)) do sources[#sources + 1] = id end
+    end
     return sources
 end
 function B.All(force)

@@ -5,6 +5,11 @@ C.family = "wotlk"
 function C.ItemInfo(id)
     return GetItemInfo(id)
 end
+function C.SpellIcon(id)
+    if not GetSpellInfo then return nil, nil end
+    local name, _, icon = GetSpellInfo(id)
+    return name, icon
+end
 function C.AuctionFilter(id)
     if not id or not GetAuctionItemClasses or not GetAuctionItemSubClasses then return nil, nil end
     local _, _, _, _, _, className, subName = C.ItemInfo(id)

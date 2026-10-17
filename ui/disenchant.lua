@@ -1,17 +1,29 @@
 local _, ns = ...
 local UI = {group = "wrathArmor", fee = 0.05, rows = {}, qualities = {[2] = true},
-    selling = {hours = 12, losses = 1}, tail = true, tailPercent = -10, buyPercent = 0}
+    mode = "equipment", target = 10940, equipmentGroup = "wrathArmor",
+    selling = {hours = 12, losses = 1}, tail = true, tailPercent = -10, buyPercent = 0, minItemLevel = 0}
 ns.DisenchantUI = UI
 function UI:SelectGroup(key)
-    if self.group ~= key then ns.Disenchant.CancelBuy(); ns.Batch.Stop(); self.scroll.offset = 0; self.selected = nil end
     local group = ns.Disenchant.Group(key)
+    if not group then return end
+    if self.group ~= key then ns.Disenchant.CancelBuy(); ns.Batch.Stop(); self.scroll.offset = 0; self.selected = nil end
+    if group.targetID then self.mode, self.target = "target", group.targetID
+    else self.mode, self.equipmentGroup = "equipment", key end
     self.qualities = {}
     for quality = 2, 4 do self.qualities[quality] = ns.Disenchant.HasQuality(group, quality) end
     self.group = key; self:Render()
 end
+function UI:SelectMode(mode)
+    if mode == "target" then
+        self:SelectGroup(ns.Disenchant.Selection("target" .. self.target, {[2] = true, [3] = true, [4] = true}))
+    else self:SelectGroup(self.equipmentGroup) end
+end
 function UI:Controls()
     local phase = ns.Scan.state.phase
-    if phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
+    local group = ns.Disenchant.Group(self.group)
+    if phase == "idle" and not ns.Buy.Active() and (not group.targetID or #ns.Disenchant.Materials(self.group) > 0) then
+        self.scan:Enable()
+    else self.scan:Disable() end
     if phase == "paused" then self.resume:Show() else self.resume:Hide() end
     if phase ~= "idle" or ns.Buy.Active() then self.stop:Show() else self.stop:Hide() end
     local purchase = ns.Disenchant.purchase
@@ -28,20 +40,27 @@ function UI:Controls()
     if phase == "idle" and not ns.Buy.Active() then self.buyEdit:Show(); self.buyLabel:Show()
     else self.buyEdit:Hide(); self.buyLabel:Hide() end
     local ready = phase == "idle" and not ns.Buy.Active()
-    for _, control in ipairs({self.tailCheck, self.feeButton, self.duration.frame, self.groupMenu.frame}) do
+    for _, control in ipairs({self.tailCheck, self.feeButton, self.duration.frame, self.groupMenu.frame,
+        self.modeMenu.frame, self.targetPicker.frame}) do
         if ready then control:Enable() else control:Disable() end
     end
+    if not ready then self.modeMenu.cover:Hide(); self.targetPicker.cover:Hide(); self.groupMenu.cover:Hide() end
     for _, control in pairs(self.qualityChecks) do if ready then control:Enable() else control:Disable() end end
-    for _, edit in ipairs({self.tailEdit, self.lossEdit, self.depositEdit}) do
+    for _, edit in ipairs({self.tailEdit, self.lossEdit, self.depositEdit, self.ilvlEdit}) do
         edit:EnableMouse(ready); if not ready then edit:ClearFocus() end
     end
 end
 function UI:ReadSettings()
+    local levelText = self.ilvlEdit:GetText()
+    local level = levelText == "" and 0 or tonumber(levelText)
+    if not level or level < 0 or level > 999 or level ~= math.floor(level) then
+        ns.say(ns.T("deInvalidItemLevel")); return false
+    end
     local tail, buy = tonumber((self.tailEdit:GetText():gsub(",", "."))), tonumber((self.buyEdit:GetText():gsub(",", ".")))
     if not tail or tail <= -100 or tail > 1000 or not buy or buy <= -100 or buy > 1000 then
         ns.say(ns.T("alchemyInvalidPrice")); return false
     end
-    self.tailPercent, self.buyPercent = tail, buy
+    self.tailPercent, self.buyPercent, self.minItemLevel = tail, buy, level
     return true
 end
 function UI:Commit(edit, apply, show)
@@ -54,6 +73,14 @@ function UI:Commit(edit, apply, show)
 end
 function UI:NewSettings(parent)
     local K = ns.TradeKit
+    K.Label(parent, ns.T("deMinItemLevel"), 358, -36, 90)
+    self.ilvlEdit = K.Edit(parent, 48); self.ilvlEdit:SetText(tostring(self.minItemLevel))
+    self.ilvlEdit:SetPoint("TOPLEFT", parent, "TOPLEFT", 452, -30)
+    self:Commit(self.ilvlEdit, function(text)
+        local value = text == "" and 0 or tonumber(text)
+        if value and value >= 0 and value <= 999 and value == math.floor(value) then self.minItemLevel = value end
+    end, function() return tostring(self.minItemLevel) end)
+    K.Tooltip(self.ilvlEdit, ns.T("deMinItemLevel"), ns.T("deMinItemLevelTip"))
     self.tailCheck = K.Check(parent, function(value) self.tail = value; self:Render() end)
     self.tailCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -60)
     self.tailCheck:SetChecked(self.tail)
@@ -106,7 +133,9 @@ function UI:Prices()
     local columns = math.max(1, math.floor((width - 20) / 400))
     local cell = math.floor((width - 20) / columns)
     self.showPrices = self.pricesExpanded
-    if self.showPrices == nil then self.showPrices = (self.frame:GetHeight() or 510) >= 420 end
+    if self.showPrices == nil then
+        self.showPrices = not ns.Disenchant.Group(self.group).targetID and (self.frame:GetHeight() or 510) >= 420
+    end
     self.priceToggle:SetActive(self.showPrices)
     self.duration.frame:SetText(ns.T("deHours", self.selling.hours))
     for i, editor in ipairs(self.priceEditors) do
@@ -122,32 +151,11 @@ function UI:Prices()
     return (self.showPrices and 118 + math.ceil(#ids / columns) * 32 or 116) + 48
 end
 function UI:Outcomes(estimate)
-    local K, outputs = ns.TradeKit, estimate and estimate.outputs or {}
-    local room = math.max(1, math.floor(((self.inspector.body:GetHeight() or 374) - 172 - 40) / 46))
-    for i, card in ipairs(self.cards) do
-        local output = outputs[i]
-        if output and i <= room then
-            card.frame:ClearAllPoints()
-            card.frame:SetPoint("TOPLEFT", self.inspector.body, "TOPLEFT", 12, -(172 + (i - 1) * 46))
-            local _, _, quality, _, _, _, _, _, _, icon = ns.Compat.ItemInfo(output.id)
-            card.icon:SetTexture(icon)
-            card.name:SetText(ns.Markets.Name(output.id))
-            if quality and type(GetItemQualityColor) == "function" then
-                local r, g, b = GetItemQualityColor(quality); card.name:SetTextColor(r, g, b)
-            else card.name:SetTextColor(unpack(K.theme.text)) end
-            local range = output.minCount == output.maxCount and tostring(output.minCount)
-                or output.minCount .. "-" .. output.maxCount
-            card.amount:SetText(ns.T("deCardCount", range))
-            local share = output.chance
-            card.fill:SetWidth(math.max(2, math.floor(self.cardBar * share + 0.5)))
-            local tone = share >= 0.5 and {0.4, 0.8, 0.5} or (share >= ns.Disenchant.RARE and {0.3, 0.56, 0.8} or {0.72, 0.45, 0.9})
-            card.fill:SetVertexColor(tone[1], tone[2], tone[3], 1)
-            card.chance:SetText(string.format("%g%%", share * 100))
-            card.line:SetText(ns.T("deCardLine", K.Money(output.price), string.format("%.3g", output.quantity),
-                K.Money(output.price and output.quantity * output.price)))
-            card.frame:Show()
-        else card.frame:Hide() end
+    local outputs, target = {}, ns.Disenchant.Group(self.group).targetID
+    for _, output in ipairs(estimate and estimate.outputs or {}) do
+        if output.id == target then table.insert(outputs, 1, output) else outputs[#outputs + 1] = output end
     end
+    self.outcomes:SetProps({source = self.selected, target = target, outputs = outputs})
 end
 function UI:Spread(estimate)
     local bar, K = self.spread, ns.TradeKit
@@ -179,11 +187,12 @@ end
 function UI:Render()
     if not self.frame then return end
     local K, selected = ns.TradeKit
-    local rows = self.sorter:Apply(ns.Disenchant.Rows(self.group, self.fee, self.selling), {
+    local group = ns.Disenchant.Group(self.group)
+    local rows = self.sorter:Apply(ns.Disenchant.Rows(self.group, self.fee, self.selling, self.minItemLevel), {
         item = function(entry) return ns.Markets.Name(entry.id) end,
         price = function(entry) return entry.cost end,
         margin = function(entry) return entry.estimate.margin end,
-        units = function(entry) return entry.units end,
+        units = function(entry) return group.targetID and entry.target.chance or entry.units end,
     })
     local progress = ns.Disenchant.Progress(self.group)
     local progressText
@@ -194,8 +203,15 @@ function UI:Render()
             or ns.T("deProgressEquipment", progress.page, pages, progress.lots)
         if progress.paused then progressText = ns.T("deProgressPaused", progressText) end
     end
-    local group = ns.Disenchant.Group(self.group)
-    self.groupMenu.frame:SetText(ns.T(group.labelKey))
+    self.modeMenu.frame:SetText(ns.T(group.targetID and "deTargetMode" or "deEquipmentMode"))
+    if group.targetID then
+        self.groupMenu.frame:Hide(); self.targetPicker.frame:Show()
+        self.targetPicker:SetProps({families = ns.Disenchant.TargetItems(), raw = group.targetID, headingKey = "deTargetMode"})
+    else
+        self.groupMenu.frame:Show(); self.targetPicker.frame:Hide(); self.targetPicker.cover:Hide()
+        self.groupMenu.frame:SetText(ns.T(group.labelKey))
+    end
+    self.headers.units:SetText(ns.T(group.targetID and "deTargetChance" or "tradeUnits"))
     for quality, box in pairs(self.qualityChecks) do box:SetChecked(ns.Disenchant.HasQuality(group, quality)) end
     local top = self:Prices()
     local width = (self.frame:GetWidth() or 996) - 310
@@ -224,13 +240,17 @@ function UI:Render()
         row.frame:ClearAllPoints(); row.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, -top - (i - 1) * 29)
         local entry = i <= visible and rows[offset + i]
         if entry then
-            row:SetProps({id = entry.id, width = width, quote = {price = entry.cost, units = entry.units},
+            local target = entry.target
+            local detail = target and ns.T("deTargetYield", target.minCount, target.maxCount,
+                string.format("%.3g", target.chance * (target.minCount + target.maxCount) / 2))
+                or (ns.T(self.qualityLabels[entry.meta.quality or 2]) .. " | " .. ns.T("deRow", entry.meta.level, entry.meta.skill))
+            row:SetProps({id = entry.id, width = width,
+                quote = {price = entry.cost, units = target and string.format("%g%%", target.chance * 100) or entry.units},
                 margin = entry.estimate.margin, percent = entry.estimate.percent, active = entry.id == self.selected,
                 match = entry.estimate.fresh and entry.estimate.percent ~= nil
                     and entry.estimate.percent > self.buyPercent,
                 quality = entry.meta.quality or 2,
-                detail = ns.T(self.qualityLabels[entry.meta.quality or 2]) .. " | "
-                    .. ns.T("deRow", entry.meta.level, entry.meta.skill), extraTip = ns.T("deModelTip")})
+                detail = detail, extraTip = ns.T("deRow", entry.meta.level, entry.meta.skill) .. "\n" .. detail .. "\n" .. ns.T("deModelTip")})
             row.refresh:Hide()
         else row.frame:Hide() end
     end
@@ -242,6 +262,8 @@ function UI:Render()
         or ns.T("deNotScanned")))
     if scan and scan.deCut and not progress then
         self.status:SetText(ns.T("deCutStatus", scan.deReadPages, scan.dePercent))
+    elseif scan and scan.deCutStopped and not progress then
+        self.status:SetText(ns.T("deCutStopped", ns.T("deCutReason" .. scan.deCutStopped)))
     elseif scan and scan.deCutDisabled and not progress then
         self.status:SetText(ns.T("deCutUnavailable"))
     end
@@ -255,10 +277,11 @@ function UI:Render()
             .. "\n" .. ns.T("deDepositSummary", self.selling.hours, K.Money(estimate.deposit), self.selling.losses, K.Money(estimate.reserve)))
     else
         self.inspector:Clear(); self:Spread(nil); self:Outcomes(nil); self.freshNote:SetText("")
-        self.summary:SetText(ns.T(progress and "deRunningGuide" or "deIntro"))
+        self.summary:SetText(ns.T(progress and "deRunningGuide" or (group.targetID and "deTargetIntro" or "deIntro")))
     end
     self.feeButton:SetText(ns.T("tradeFee", math.floor(self.fee * 100 + 0.5)))
-    self.preview = ns.Disenchant.PurchasePlan(self.group, {fee = self.fee, selling = self.selling, percent = self.buyPercent})
+    self.preview = ns.Disenchant.PurchasePlan(self.group, {fee = self.fee, selling = self.selling,
+        percent = self.buyPercent, minItemLevel = self.minItemLevel})
     self.buyPreview:SetText(ns.T("deBuyPreview", self.preview.count, K.Money(self.preview.cost)))
     if ns.Disenchant.purchase then self.status:SetText(ns.T("deBuyStage", ns.Disenchant.purchase.index,
         #ns.Disenchant.purchase.plan.items, ns.Buy.state.bought, K.Money(ns.Buy.state.spent))) end
@@ -277,7 +300,16 @@ function UI:New(parent)
         local selection = ns.Disenchant.Selection(key, self.qualities)
         if selection then self:SelectGroup(selection) end
     end)
-    self.groupMenu.frame:SetWidth(260); self.groupMenu.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -3)
+    self.modeMenu = K.Menu(f, {{key = "equipment", labelKey = "deEquipmentMode"}, {key = "target", labelKey = "deTargetMode"}},
+        function(mode) self:SelectMode(mode) end)
+    self.modeMenu.frame:SetWidth(150); self.modeMenu.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -3)
+    self.groupMenu.frame:SetWidth(260); self.groupMenu.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 164, -3)
+    self.targetPicker = K.FamilyPicker:New(f, function(id)
+        self:SelectGroup(ns.Disenchant.Selection("target" .. id, self.qualities))
+    end)
+    self.targetPicker.frame:SetWidth(260); self.targetPicker.frame.text:SetWidth(226)
+    self.targetPicker.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 164, -3)
+    K.Tooltip(self.modeMenu.frame, ns.T("deTargetMode"), ns.T("deTargetModeTip"))
     self.qualityLabels = {[2] = "deUncommon", [3] = "deRare", [4] = "deEpic"}
     self.qualityChecks = {}
     for quality = 2, 4 do
@@ -296,7 +328,8 @@ function UI:New(parent)
     self.scan = K.Button(f, ns.T("scanSelection"), 140, function()
         if not self:ReadSettings() then return end
         ns.Disenchant.Scan(self.group, IsShiftKeyDown(), {fee = self.fee, cut = self.tail,
-            percent = self.tailPercent, selling = {hours = self.selling.hours, losses = self.selling.losses, base = self.selling.base}}); self:Render()
+            percent = self.tailPercent, minItemLevel = self.minItemLevel,
+            selling = {hours = self.selling.hours, losses = self.selling.losses, base = self.selling.base}}); self:Render()
     end, "main")
     self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -5)
     K.Tooltip(self.scan, ns.T("deTitle"), ns.T("deScanTip"))
@@ -324,6 +357,7 @@ function UI:New(parent)
     self.buy = K.Button(f, ns.T("deBuyByMargin"), 160, function()
         if not self:ReadSettings() then return end
         ns.Disenchant.Purchase(self.group, {fee = self.fee, percent = self.buyPercent,
+            minItemLevel = self.minItemLevel,
             selling = {hours = self.selling.hours, losses = self.selling.losses, base = self.selling.base}})
         self:Render()
     end, "main")
@@ -369,37 +403,8 @@ function UI:New(parent)
     self.spread = bar
     self.summary = K.Label(panel, "", 12, -102, 240)
     self.summary:SetHeight(300); self.summary:SetJustifyV("TOP")
-    self.cardBar, self.cards = 118, {}
-    for i = 1, 4 do
-        local card = {frame = ns.NewFrame("Frame", nil, panel)}
-        card.frame:SetWidth(226); card.frame:SetHeight(42)
-        card.frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -(172 + (i - 1) * 46))
-        card.back = card.frame:CreateTexture(nil, "BACKGROUND")
-        card.back:SetAllPoints(card.frame); card.back:SetTexture(K.theme.white)
-        card.back:SetVertexColor(1, 1, 1, 0.05)
-        card.icon = card.frame:CreateTexture(nil, "ARTWORK")
-        card.icon:SetWidth(34); card.icon:SetHeight(34)
-        card.icon:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 4, -4)
-        card.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        card.name = K.Label(card.frame, "", 44, -3, 130)
-        card.name:SetHeight(12)
-        card.amount = card.frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        card.amount:SetPoint("TOPRIGHT", card.frame, "TOPRIGHT", -6, -2)
-        card.amount:SetJustifyH("RIGHT"); card.amount:SetTextColor(unpack(K.theme.gold))
-        card.track = card.frame:CreateTexture(nil, "BORDER")
-        card.track:SetTexture(K.theme.white); card.track:SetVertexColor(1, 1, 1, 0.12)
-        card.track:SetWidth(self.cardBar); card.track:SetHeight(7)
-        card.track:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 44, -18)
-        card.fill = card.frame:CreateTexture(nil, "ARTWORK")
-        card.fill:SetTexture(K.theme.white); card.fill:SetHeight(7)
-        card.fill:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 44, -18)
-        card.chance = K.Label(card.frame, "", 166, -16, 56)
-        card.chance:SetTextColor(unpack(K.theme.secondary))
-        card.line = K.Label(card.frame, "", 44, -29, 178)
-        card.line:SetHeight(12)
-        card.frame:Hide()
-        self.cards[i] = card
-    end
+    self.outcomes = K.OutcomeList:New(panel)
+    self.cards = self.outcomes.cards
     self.freshNote = K.Label(panel, "", 12, 0, 200)
     self.freshNote:ClearAllPoints(); self.freshNote:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 12, 10)
     self.freshNote:SetHeight(28); self.freshNote:SetTextColor(unpack(K.theme.negative))
