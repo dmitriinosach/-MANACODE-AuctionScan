@@ -12,6 +12,9 @@ local function clean(s)
     if not s then return "" end
     return (s:gsub("[:|%c]", ""))
 end
+function Lot.Key(item, suffix, count, buyout, owner)
+    return table.concat({item, suffix, count, buyout, clean(owner)}, ":")
+end
 function Lot.Encode(l)
     return table.concat({
         l.item, l.suffix, l.count, l.minBid, l.buyout, l.bid, l.timeLeft, clean(l.owner),

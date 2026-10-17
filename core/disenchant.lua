@@ -1,6 +1,7 @@
 local _, ns = ...
 local D = {}
 ns.Disenchant = D
+D.priceSeconds = 1800
 D.RARE = 0.05
 D.groups = {
     {key = "wrathArmor", labelKey = "deWrathArmor", expansion = "wrath", classIndex = 2, minLevel = 68, maxLevel = 80},
@@ -33,6 +34,8 @@ function D.Group(key)
         for _, band in ipairs(ns.disenchantBands) do
             if D.Matches(group, band) then
                 found = true; maximum = math.max(maximum, band.maxRequiredLevel or 80)
+                group.minItemLevel = math.min(group.minItemLevel or math.huge, band.minLevel)
+                group.maxItemLevel = math.max(group.maxItemLevel or 0, band.maxLevel)
             end
         end
         if not found then
@@ -88,6 +91,27 @@ function D.Accepts(group, meta)
     if group.targetID then return D.Output(band, group.targetID) ~= nil end
     return band and band.expansion == group.expansion and meta.classIndex == group.classIndex
 end
+function D.WithinLevels(meta, minimum, maximum)
+    return meta.level >= (minimum or 0) and (not maximum or maximum == 0 or meta.level <= maximum)
+end
+function D.RequiredRange(key, classIndex, options)
+    options = options or {}
+    local group, minimum, maximum = D.Group(key), 81, 0
+    if options.includeNoLevel then return 0, group.maxLevel end
+    for _, band in ipairs(ns.disenchantBands) do
+        local levels = ns.disenchantRequiredLevels[band.key]
+        levels = levels and levels[classIndex]
+        if levels and D.Matches(group, band) then
+            for level, range in pairs(levels) do
+                if D.WithinLevels({level = level}, options.minItemLevel, options.maxItemLevel) and range[2] > 0 then
+                    minimum, maximum = math.min(minimum, range[1]), math.max(maximum, range[2])
+                end
+            end
+        end
+    end
+    if maximum == 0 then return math.max(1, group.minLevel), group.maxLevel end
+    return minimum, maximum
+end
 function D.TargetItems()
     local out = {}
     for _, id in ipairs(ns.disenchantMaterials) do out[#out + 1] = {raw = id} end
@@ -123,6 +147,10 @@ function D.Quote(id)
     local q, value = ns.Markets.Quote(id), prices()[id]
     if value == nil then return q end
     return {price = value, miss = 0, complete = true, manual = true, at = time()}
+end
+function D.Fresh(id)
+    local quote = D.Quote(id)
+    return quote and quote.manual or ns.Markets.Fresh(id, D.priceSeconds)
 end
 function D.Candidate(id, link)
     if ns.disenchantExcluded and ns.disenchantExcluded[id] then return false end
@@ -199,7 +227,7 @@ function D.Estimate(band, cost, fee, fixedPrices, selling)
                 result.deposit = result.deposit + output.chance * deposit / (output.maxCount - output.minCount + 1)
             else result.deposit = nil end
         end
-        result.fresh = result.fresh and (quote and quote.manual or ns.Markets.Fresh(output.itemID))
+        result.fresh = result.fresh and D.Fresh(output.itemID)
         if price and result.gross then result.gross = result.gross + quantity * price else result.gross = nil end
     end
     if result.gross then
@@ -214,17 +242,24 @@ function D.Estimate(band, cost, fee, fixedPrices, selling)
 end
 function D.Snapshot(key)
     local scans = ns.Store.DB().scans
-    for i = #scans, 1, -1 do if scans[i].deGroup == key then return scans[i] end end
+    local draft = ns.Store.DB().disenchantDrafts and ns.Store.DB().disenchantDrafts[key]
+    for i = #scans, 1, -1 do
+        if scans[i].deGroup == key then
+            return draft and draft.t >= scans[i].t and draft or scans[i]
+        end
+    end
+    return draft
 end
 function D.Progress(key)
     local state, job = ns.Scan.state, ns.Batch.job
     local scan = state.scan
     if scan and scan.deGroup == key then
-        return {stage = "equipment", paused = state.phase == "paused", page = state.page + 1,
+        return {stage = "equipment", paused = state.phase == "paused", page = state.page + 1, classIndex = scan.classIndex,
+            minLevel = scan.minLevel, maxLevel = scan.maxLevel,
             pages = state.pages, lots = #scan.lots, scan = scan}
     end
     if not job or not scan then return nil end
-    local matches, total, index = false, 0, 0
+    local matches, total, index = job.deGroup == key, 0, 0
     for i, task in ipairs(job.items) do
         if task.target.deGroup == key then matches = true end
         if task.target.itemID then
@@ -238,13 +273,20 @@ function D.Progress(key)
     end
     return nil
 end
-function D.Rows(key, fee, selling, minItemLevel)
+function D.Rows(key, fee, selling, minItemLevel, minPercent, maxItemLevel, includeNoLevel)
     local progress = D.Progress(key)
     local scan, entries = progress and progress.scan or D.Snapshot(key), {}
     for _, text in ipairs(scan and scan.lots or {}) do
         local lot = ns.Lot.Decode(text)
         local meta = lot and scan.disenchantItems[lot.item]
-        if meta and D.Accepts(D.Group(key), meta) and meta.level >= (minItemLevel or 0) and lot.count > 0 and lot.buyout > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player") then
+        local eligible = meta and D.Accepts(D.Group(key), meta) and D.WithinLevels(meta, minItemLevel, maxItemLevel)
+            and (includeNoLevel ~= false or meta.required ~= 0)
+            and lot.count > 0 and lot.buyout > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player")
+        if eligible and minPercent ~= nil then
+            local estimate = D.Estimate(D.Band(meta.band), lot.buyout / lot.count, fee, nil, selling)
+            eligible = estimate.percent ~= nil and estimate.percent >= minPercent - 0.000001
+        end
+        if eligible then
             local row = entries[lot.item] or {id = lot.item, units = 0, lots = 0, meta = meta}
             row.cost = math.min(row.cost or math.huge, lot.buyout / lot.count)
             row.units, row.lots = row.units + lot.count, row.lots + 1
@@ -269,19 +311,36 @@ function D.Rows(key, fee, selling, minItemLevel)
     end)
     return result
 end
-function D.Scan(key, force, options)
+function D.Scan(key, force, options, part)
+    part = part or "smart"
+    force = force or part == "materials" or part == "all"
     local group, sources = D.Group(key), {}
     if not group or not GetAuctionItemClasses or (not group.targetID and not ({GetAuctionItemClasses()})[group.classIndex]) then
         ns.say(ns.T("deNoClasses")); return false
     end
     if group.targetID and #D.Materials(key) == 0 then ns.say(ns.T("deTargetNoBands")); return false end
-    for _, id in ipairs(D.Materials(key)) do
-        if not (D.Quote(id) and D.Quote(id).manual) then sources[#sources + 1] = id end
+    if part ~= "equipment" then
+        for _, id in ipairs(D.Materials(key)) do
+            if not (D.Quote(id) and D.Quote(id).manual) and (force or not D.Fresh(id)) then
+                sources[#sources + 1] = id
+            end
+        end
     end
-    sources[#sources + 1] = {target = {scope = "disenchant", deGroup = key, query = "",
-        classIndex = group.classIndex, minLevel = group.minLevel, maxLevel = group.maxLevel,
-        minQuality = group.quality, deOptions = options}, covered = {}}
-    return ns.Batch.Complete(sources, force, true)
+    if part ~= "materials" then
+        local ranges = {}
+        for _, class in ipairs(group.targetID and {2, 1} or {group.classIndex}) do
+            local low, high = D.RequiredRange(key, class, options)
+            ranges[class] = {minLevel = low, maxLevel = high}
+        end
+        sources[#sources + 1] = {target = {scope = "disenchant", deGroup = key, query = "",
+            classIndex = group.classIndex, deClasses = group.targetID and {2, 1} or nil,
+            deRanges = ranges,
+            minLevel = group.minLevel, maxLevel = group.maxLevel,
+            minQuality = group.quality, deOptions = options}, covered = {}}
+    end
+    local started = ns.Batch.Complete(sources, force, true)
+    if started and ns.Batch.job then ns.Batch.job.deGroup = key end
+    return started
 end
 function D.Prepare(scan)
     local options, group = scan.deOptions, D.Group(scan.deGroup)
@@ -297,7 +356,8 @@ function D.Prepare(scan)
         scan.dePrices[id] = {price = q.price, miss = 0, complete = true, manual = q.manual}
     end
     for _, band in ipairs(ns.disenchantBands) do
-        if D.Matches(group, band) then
+        if D.Matches(group, band) and band.maxLevel >= (options.minItemLevel or 0)
+            and (not options.maxItemLevel or options.maxItemLevel == 0 or band.minLevel <= options.maxItemLevel) then
             local estimate = D.Estimate(band, 0, options.fee or 0.05, scan.dePrices, options.selling)
             if not estimate.net then scan.deCutDisabled, scan.deCutMissing = "prices", band.key; return end
             scan.deLimit = math.max(scan.deLimit, estimate.net / (1 + percent / 100))
@@ -361,14 +421,29 @@ function D.CheckTail(scan, batch)
     return scan.deTailPages >= 2
 end
 function D.PurchasePlan(key, options)
-    local scan, lots = D.Snapshot(key), {}
+    local progress = D.Progress(key)
+    local scan, lots = progress and progress.scan or D.Snapshot(key), {}
+    local ordered, rejected, stale = {}, {unknown = 0, threshold = 0, money = 0}, 0
+    for _, basket in ipairs(D.orders and scan and D.orders[scan.id] or {}) do
+        for _, pick in ipairs(basket.picks) do
+            local signature = pick.offer.key
+            ordered[signature] = (ordered[signature] or 0) + pick.lots - pick.offer.count
+        end
+    end
     for _, text in ipairs(scan and scan.lots or {}) do
         local lot = ns.Lot.Decode(text)
         local meta = lot and scan.disenchantItems[lot.item]
-        if meta and D.Accepts(D.Group(key), meta) and meta.level >= (options.minItemLevel or 0) and lot.buyout > 0 and lot.count > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player") then
+        if meta and (not options.itemID or lot.item == options.itemID) and D.Accepts(D.Group(key), meta)
+            and D.WithinLevels(meta, options.minItemLevel, options.maxItemLevel)
+            and (options.includeNoLevel ~= false or meta.required ~= 0)
+            and lot.buyout > 0 and lot.count > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player") then
             local e = D.Estimate(D.Band(meta.band), lot.buyout / lot.count, options.fee, nil, options.selling)
-            if e.fresh and e.percent and e.percent > options.percent then
-                lots[#lots + 1] = {lot = lot, percent = e.percent}
+            if e.percent ~= nil and not e.fresh then stale = stale + 1 end
+            if not e.percent then rejected.unknown = rejected.unknown + 1
+            elseif not options.itemID and e.percent <= options.percent then rejected.threshold = rejected.threshold + 1
+            else
+                lots[#lots + 1] = {lot = lot, percent = e.percent,
+                    classIndex = meta.classIndex, key = ns.Lot.Key(lot.item, lot.suffix, lot.count, lot.buyout, lot.owner)}
             end
         end
     end
@@ -376,10 +451,15 @@ function D.PurchasePlan(key, options)
         if a.percent ~= b.percent then return a.percent > b.percent end
         return a.lot.buyout < b.lot.buyout
     end)
-    local result, byID, money = {items = {}, count = 0, cost = 0}, {}, GetMoney()
+    local result, byID, money = {items = {}, count = 0, cost = 0, map = {},
+        basket = {kind = "manual", picks = {}, need = 0}, scanID = scan and scan.id,
+        rejected = rejected, stale = stale}, {}, GetMoney()
     for _, entry in ipairs(lots) do
+        if options.itemID and result.count > 0 then break end
         local lot = entry.lot
-        if lot.buyout <= money then
+        if (ordered[entry.key] or 0) > 0 then
+            ordered[entry.key] = ordered[entry.key] - 1
+        elseif lot.buyout <= money then
             local item = byID[lot.item]
             if not item then
                 item = {id = lot.item, name = ns.Markets.Name(lot.item), plan = {kind = "manual", picks = {}, need = 0}}
@@ -388,52 +468,107 @@ function D.PurchasePlan(key, options)
             local offer = {stack = lot.count, buyout = lot.buyout, count = 1, page = 0}
             item.plan.picks[#item.plan.picks + 1] = {offer = offer, lots = 1}
             item.plan.need = item.plan.need + lot.count
+            local saved = result.map[entry.key]
+            if not saved then
+                local offer = {key = entry.key, item = lot.item, suffix = lot.suffix, owner = lot.owner,
+                    classIndex = entry.classIndex, percent = entry.percent,
+                    stack = lot.count, buyout = lot.buyout, count = 0, page = 0}
+                saved = {offer = offer, lots = 0}
+                result.map[entry.key] = saved
+                result.basket.picks[#result.basket.picks + 1] = saved
+            end
+            saved.lots, saved.offer.count = saved.lots + 1, saved.offer.count + 1
+            result.basket.need = result.basket.need + lot.count
             result.count, result.cost, money = result.count + 1, result.cost + lot.buyout, money - lot.buyout
+        else
+            rejected.money = rejected.money + 1
         end
     end
     for _, item in ipairs(result.items) do ns.Plan.Recount(item.plan) end
+    ns.Plan.Recount(result.basket)
     return result
 end
 function D.CancelBuy()
     D.purchase = nil
+    ns.Scan.purchaseRequest = nil
     ns.Buy.Stop()
 end
-local function nextPurchase()
+local function startPurchase()
     local job = D.purchase
-    local item = job and job.plan.items[job.index]
-    if not item then D.purchase = nil; return false end
     local options, group = job.options, D.Group(job.key)
     local function guard(index)
         local id = ns.Lot.FromLink(GetAuctionItemLink("list", index))
         local _, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", index)
         local meta = id and D.Candidate(id, GetAuctionItemLink("list", index))
-        if not meta or meta.level < (options.minItemLevel or 0) or not D.Accepts(group, meta) or not count or count <= 0
+        if not meta or not D.WithinLevels(meta, options.minItemLevel, options.maxItemLevel)
+            or options.includeNoLevel == false and meta.required == 0
+            or not D.Accepts(group, meta) or not count or count <= 0
             or not buyout or buyout <= 0 or not owner or owner == "" or owner == UnitName("player") then return false end
         local estimate = D.Estimate(D.Band(meta.band), buyout / count, options.fee, nil, options.selling)
-        return estimate.fresh and estimate.percent and estimate.percent > options.percent
+        return estimate.percent ~= nil and (options.itemID ~= nil or estimate.percent > options.percent)
     end
     job.starting = true
-    local ok = ns.Buy.Start(item.name, item.plan, item.id, guard)
+    local ok = ns.Buy.StartCategory(job.plan.basket, job.filter, guard)
     job.starting = false
-    if not ok then D.purchase = nil end
+    if ok then
+        D.orders = D.orders or {}
+        D.orders[job.plan.scanID] = D.orders[job.plan.scanID] or {}
+        table.insert(D.orders[job.plan.scanID], job.plan.basket)
+    else D.purchase = nil end
     return ok
 end
 function D.Purchase(key, options)
-    if D.purchase then return ns.Buy.Confirm() end
-    if ns.Buy.Active() or ns.Scan.state.phase ~= "idle" then return false end
+    if D.purchase then
+        if D.purchase.key ~= key or D.purchase.options.itemID ~= options.itemID then
+            D.CancelBuy(); ns.say(ns.T("deBuyContextChanged")); return false
+        end
+        return ns.Buy.Confirm()
+    end
+    if ns.Buy.Active() or not ns.Scan.state.open then return false end
+    if ns.Scan.state.phase ~= "idle" then
+        return ns.Scan.SnapshotForPurchase(key, function() D.Purchase(key, options) end)
+    end
     local plan = D.PurchasePlan(key, options)
     if #plan.items == 0 then ns.say(ns.T("deBuyEmpty")); return false end
-    D.purchase = {key = key, options = options, plan = plan, index = 1}
-    return nextPurchase()
+    local group, scan = D.Group(key), D.Snapshot(key)
+    local frozen = {fee = options.fee, percent = options.percent, minItemLevel = options.minItemLevel,
+        maxItemLevel = options.maxItemLevel, includeNoLevel = options.includeNoLevel, itemID = options.itemID}
+    if options.selling then
+        frozen.selling = {hours = options.selling.hours, losses = options.selling.losses, base = options.selling.base}
+    end
+    D.purchase = {key = key, options = frozen, plan = plan,
+        filter = {scope = "disenchant", deGroup = key, deTarget = group.targetID,
+            classIndex = group.classIndex, minLevel = group.minLevel,
+            maxLevel = group.maxLevel, minQuality = group.quality,
+            maxPages = math.max(1, scan.deReadPages or math.ceil((scan.expect or 0) / 50))}}
+    local firstClass = group.classIndex or 2
+    local range = scan.deRanges and scan.deRanges[firstClass]
+    local low, high = D.RequiredRange(key, firstClass, options)
+    D.purchase.filter.minLevel, D.purchase.filter.maxLevel = range and range.minLevel or low,
+        range and range.maxLevel or high
+    if group.targetID then
+        local routes = {}
+        for _, pick in ipairs(plan.basket.picks) do
+            local class = pick.offer.classIndex
+            local low, high = D.RequiredRange(key, class, options)
+            routes[class] = routes[class] or {classIndex = class,
+                minLevel = scan.deRanges and scan.deRanges[class] and scan.deRanges[class].minLevel or low,
+                maxLevel = scan.deRanges and scan.deRanges[class] and scan.deRanges[class].maxLevel or high,
+                maxPages = math.max(1, scan.deRoutePages and scan.deRoutePages[class] or D.purchase.filter.maxPages), score = -math.huge}
+            routes[class].score = math.max(routes[class].score, pick.offer.percent)
+        end
+        D.purchase.filter.routes = {}
+        for _, route in pairs(routes) do table.insert(D.purchase.filter.routes, route) end
+        table.sort(D.purchase.filter.routes, function(a, b) return a.score > b.score end)
+    end
+    return startPurchase()
 end
 function D.BuyChanged()
     local job = D.purchase
     if job and not job.starting then
         if (ns.Buy.state.refused or 0) > 0 then D.CancelBuy()
         elseif not ns.Buy.Active() then
-            if ns.Buy.state.stopKey == "sayBuyDone" then
-                job.index = job.index + 1; nextPurchase()
-            else D.purchase = nil end
+            D.purchase = nil
         end
     end
     if ns.Trader and ns.Trader.section == "disenchant" and ns.Trader.frame then ns.Trader.Refresh() end

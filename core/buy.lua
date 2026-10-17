@@ -50,6 +50,7 @@ function Buy.Left()
     return n
 end
 local function stop(key, ...)
+    if R.filter then ns.Disenchant.RestoreSort(R.filter) end
     R.stopKey = key
     R.phase, R.matches = "idle", {}
     ns.say(ns.T(key, ...))
@@ -63,10 +64,22 @@ local function onForeign()
     if sending or R.phase == "idle" or R.phase == "finish" then return end
     stop("sayBuyForeign", R.bought, GetCoinTextureString(R.spent))
 end
+local function nextRoute()
+    local routes = R.filter and R.filter.routes
+    if not routes then return false end
+    R.route = (R.route or 0) + 1
+    local route = routes[R.route]
+    if not route then return false end
+    R.filter.classIndex, R.filter.maxPages = route.classIndex, route.maxPages
+    R.filter.minLevel, R.filter.maxLevel = route.minLevel or R.filter.minLevel, route.maxLevel or R.filter.maxLevel
+    R.page, R.pages, R.pass = 0, 0, 1
+    R.phase, R.nextAt = "send", GetTime()
+    return true
+end
 local function send()
     sending = true
     local class, sub = ns.Compat.AuctionFilter(R.itemID)
-    local sent = ns.Query.Send(queryName(R.name), R.page, false, {classIndex = class, subClassIndex = sub})
+    local sent = ns.Query.Send(queryName(R.name), R.page, false, R.filter or {classIndex = class, subClassIndex = sub})
     sending = false
     if not sent then return end
     R.phase, R.sentAt = "wait", GetTime()
@@ -79,6 +92,14 @@ end
 local function match(i, me, strict, taken)
     local name, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
     if not name or (strict and not owner) then return nil end
+    if R.lookup then
+        if not owner or owner == me or not count or not buyout then return false end
+        local id, suffix = ns.Lot.FromLink(GetAuctionItemLink("list", i))
+        if not id then return nil end
+        local offer = R.lookup[ns.Lot.Key(id, suffix, count, buyout, owner)]
+        if offer and (R.want[offer] or 0) > (taken[offer] or 0) and (not R.guard or R.guard(i)) then return offer end
+        return false
+    end
     if not owner or owner == me or (name ~= R.name and not (R.guard and R.itemID)) then return false end
     if R.itemID and ns.Lot.FromLink(GetAuctionItemLink("list", i)) ~= R.itemID then return false end
     for offer, k in pairs(R.want) do
@@ -95,7 +116,7 @@ local function readPage()
     end
     local me = UnitName("player")
     local strict = R.rereads < REREAD
-    local found, taken, cold = {}, {}, false
+    local found, taken, cold, money = {}, {}, false, GetMoney()
     for i = 1, batch do
         local offer = match(i, me, strict, taken)
         if offer == nil then
@@ -109,7 +130,22 @@ local function readPage()
         R.rereads, R.readAt = R.rereads + 1, GetTime() + SETTLE
         return
     end
+    if R.lookup then
+        table.sort(found, function(a, b)
+            if a.offer.percent ~= b.offer.percent then return a.offer.percent > b.offer.percent end
+            return a.offer.buyout < b.offer.buyout
+        end)
+        local affordable = {}
+        for _, entry in ipairs(found) do
+            if entry.offer.buyout <= money then
+                affordable[#affordable + 1] = entry; money = money - entry.offer.buyout
+            end
+        end
+        found = affordable
+        table.sort(found, function(a, b) return a.index < b.index end)
+    end
     R.pages = math.ceil(total / PAGE)
+    if R.filter and R.filter.maxPages then R.pages = math.min(R.pages, R.filter.maxPages) end
     if #found > 0 then
         R.matches, R.phase = found, "ready"
         return changed()
@@ -122,9 +158,10 @@ local function readPage()
         R.pass, R.page, R.phase, R.nextAt = 2, 0, "send", GetTime()
         return changed()
     end
+    if nextRoute() then return changed() end
     shortage()
 end
-function Buy.Start(name, plan, itemID, guard)
+function Buy.Start(name, plan, itemID, guard, category)
     if Buy.Active() then return false end
     if not ns.Scan.state.open then ns.say(ns.T("sayNoAuction")); return false end
     if ns.Scan.state.phase ~= "idle" then ns.say(ns.T("sayBusy")); return false end
@@ -139,6 +176,7 @@ function Buy.Start(name, plan, itemID, guard)
     end
     R.name, R.plan, R.want, R.itemID = name, ns.Plan.Copy(plan), {}, itemID
     R.guard, R.stopKey = guard, nil
+    R.filter, R.lookup = category and category.filter, category and category.lookup
     local start
     for _, p in ipairs(R.plan.picks) do
         if p.lots > 0 then
@@ -150,12 +188,27 @@ function Buy.Start(name, plan, itemID, guard)
     R.startPage, R.page, R.pages, R.pass = start or 0, start or 0, 0, 1
     R.bought, R.spent, R.refused, R.pending, R.matches = 0, 0, 0, {}, {}
     R.phase, R.nextAt = "send", GetTime()
+    R.route = 0
+    if R.filter and R.filter.routes then nextRoute() end
     changed()
     return true
 end
+function Buy.StartCategory(plan, filter, guard)
+    local lookup = {}
+    for _, pick in ipairs(plan.picks) do
+        local offer = pick.offer
+        if not offer.key or lookup[offer.key] then return false end
+        lookup[offer.key] = offer
+    end
+    return Buy.Start("", plan, nil, guard, {filter = filter, lookup = lookup})
+end
 local function stillThere(m, me)
     local name, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", m.index)
-    local item = ns.Lot.FromLink(GetAuctionItemLink("list", m.index))
+    local item, suffix = ns.Lot.FromLink(GetAuctionItemLink("list", m.index))
+    if R.lookup then
+        return item and owner and owner ~= me and count and buyout
+            and ns.Lot.Key(item, suffix, count, buyout, owner) == m.offer.key
+    end
     return (name == R.name or (R.guard and R.itemID)) and count == m.offer.stack and buyout == m.offer.buyout and owner ~= nil and owner ~= me
         and (not R.itemID or item == R.itemID)
 end
@@ -169,13 +222,18 @@ function Buy.Confirm()
     end
     local money, now = GetMoney(), GetTime()
     local bids, per, poor = 0, {}, false
-    for _, m in ipairs(R.matches) do
+    for index = 1, #R.matches do
+        local m = R.matches[R.lookup and (#R.matches - index + 1) or index]
         local o = m.offer
         if (R.want[o] or 0) > 0 and stillThere(m, me) then
             if money < o.buyout then
                 poor = true
             else
                 PlaceAuctionBid("list", m.index, o.buyout)
+                if R.filter then
+                    ns.Store.Log("buy group=" .. tostring(R.filter.deGroup) .. " target=" .. tostring(R.filter.deTarget)
+                        .. " item=" .. tostring(o.item) .. " suffix=" .. tostring(o.suffix) .. " price=" .. o.buyout)
+                end
                 money = money - o.buyout
                 R.want[o] = R.want[o] - 1
                 R.bought, R.spent = R.bought + o.stack, R.spent + o.buyout
@@ -201,6 +259,13 @@ function Buy.Confirm()
     elseif poor then
         stop("sayBuyMoney")
     else
+        if R.filter and R.filter.routes then
+            local remaining = false
+            for offer, count in pairs(R.want) do
+                if count > 0 and offer.classIndex == R.filter.classIndex then remaining = true end
+            end
+            if not remaining and nextRoute() then changed(); return true end
+        end
         R.phase, R.nextAt = "send", now + AFTER_BUY
         changed()
     end

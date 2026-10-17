@@ -4,7 +4,7 @@
 ## Notes: Full auction house scan saved for outside analysis.
 ## Notes-ruRU: Полный скан аукциона для анализа вне игры
 ## Author: Manacode
-## Version: 0.5.0
+## Version: 0.6.0
 ## SavedVariables: AuctionScanDB
 
 compat\wotlk.lua

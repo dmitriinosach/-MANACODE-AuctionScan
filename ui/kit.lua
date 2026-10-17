@@ -777,7 +777,7 @@ function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost, toggleHide
     row.frame.text:SetPoint("TOPLEFT", row.frame, "TOPLEFT", 28, -2)
     row.frame.text:SetHeight(12)
     row.refresh = K.Button(row.frame, ns.T("tradeUpdate"), 84, function()
-        ns.Markets.Scan(row.props.id)
+        if row.props.action then row.props.action(row.props.id) else ns.Markets.Scan(row.props.id) end
     end, "quiet")
     row.refresh:SetPoint("RIGHT", row.frame, "RIGHT", -2, 0)
     K.Tooltip(row.refresh, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
@@ -862,6 +862,9 @@ function MarketRow:Render()
     self.detail:SetText((p.detail or "") .. (p.quote and (p.quote.miss or 0) > 0 and ns.T("cacheIncomplete") or ""))
     self.detail:SetTextColor(unpack(K.theme.secondary))
     if p.noRefresh or (p.quote and p.quote.vendor) then self.refresh:Hide() else self.refresh:Show() end
+    self.refresh:SetText(p.actionLabel or ns.T("tradeUpdate"))
+    if p.actionDisabled then self.refresh:Disable() else self.refresh:Enable() end
+    if p.actionTip then K.Tooltip(self.refresh, p.actionLabel, p.actionTip) end
 end
 local LevelingRow = {}
 LevelingRow.__index = LevelingRow

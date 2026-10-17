@@ -193,12 +193,12 @@ function M.Quote(id)
     end
     return ns.Shared and ns.Shared.Quote(id, own) or own
 end
-function M.Fresh(id)
+function M.Fresh(id, seconds)
     local q = M.Quote(id)
     if not q or not q.complete or (q.miss or 0) > 0 then return false end
     if q.vendor then return true end
     local age = time() - (q.since or q.at)
-    return age >= 0 and age < M.freshSeconds
+    return age >= 0 and age < (seconds or M.freshSeconds)
 end
 function M.Offers(id, scanID)
     local item = M.Item(id)

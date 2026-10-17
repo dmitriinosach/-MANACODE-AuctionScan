@@ -46,9 +46,10 @@ local function readOne(i)
         if meta == nil then return false end
         if meta == false then return true end
         local group = ns.Disenchant.Group(S.scan.deGroup)
-        if not ns.Disenchant.Accepts(group, meta)
-            or meta.level < ((S.scan.deOptions and S.scan.deOptions.minItemLevel) or 0)
-            or (meta.required and (meta.required < group.minLevel or meta.required > group.maxLevel)) then return true end
+        if not ns.Disenchant.Accepts(group, meta) or (S.scan.classIndex and meta.classIndex ~= S.scan.classIndex)
+            or not ns.Disenchant.WithinLevels(meta, S.scan.deOptions and S.scan.deOptions.minItemLevel,
+                S.scan.deOptions and S.scan.deOptions.maxItemLevel)
+            or (meta.required and (meta.required < S.scan.minLevel or meta.required > S.scan.maxLevel)) then return true end
         S.scan.disenchantItems[item] = meta
     end
     ns.Store.Item(item, name, quality)
@@ -86,6 +87,9 @@ local function finish()
     scan.expect = S.expect
     scan.miss = S.miss
     scan.secs = time() - scan.t
+    if scan.truncated and scan.deScannedPages then scan.deReadPages = scan.deScannedPages end
+    local drafts = ns.Store.DB().disenchantDrafts
+    if drafts and drafts[scan.deGroup] and drafts[scan.deGroup].id == scan.id then drafts[scan.deGroup] = nil end
     local dropped = ns.Store.Commit(scan)
     ns.Store.Log("done " .. S.mode .. " lots=" .. scan.total .. " expect=" .. S.expect .. " miss=" .. S.miss
         .. " secs=" .. scan.secs .. " errors=" .. S.errors .. " gap=" .. S.gap)
@@ -101,6 +105,8 @@ local function finish()
     if Scan.onComplete then Scan.onComplete(scan) end
 end
 local function fail(key)
+    Scan.CheckpointDisenchant()
+    Scan.purchaseRequest = nil
     if ns.Disenchant then ns.Disenchant.RestoreSort(S.scan) end
     ns.Store.Log("fail " .. key .. " phase=" .. S.phase .. " page=" .. (S.page + 1) .. "/" .. S.pages)
     S.phase, S.scan = "idle", nil
@@ -109,6 +115,7 @@ local function fail(key)
     ns.say(ns.T(key))
 end
 local function pause(key)
+    Scan.purchaseRequest = nil
     ns.Store.Log("pause " .. key .. " phase=" .. S.phase .. " page=" .. (S.page + 1) .. "/" .. S.pages)
     S.phase, S.pausedAt = "paused", GetTime()
     status("stPaused", S.page + 1, math.max(S.pages, 1))
@@ -166,23 +173,40 @@ local function readPage(now)
     for i = 1, batch do
         if not readOne(i) then S.miss = S.miss + 1 end
     end
-    if S.page == 0 then S.expect = total end
+    if S.page == 0 then S.expect = (S.scan.deExpectedBase or 0) + total end
     ns.Store.Log("page read=" .. (S.page + 1) .. " lots=" .. batch .. " total=" .. total
         .. " response=" .. string.format("%.2f", now - S.sentAt))
     S.sig, S.stale = sig, 0
     S.pages = math.ceil(total / PAGE)
     S.page, S.tries = S.page + 1, 0
     if S.scan.scope == "disenchant" then
+        S.scan.deScannedPages = (S.scan.deScannedPages or 0) + 1
+        S.scan.deRoutePages = S.scan.deRoutePages or {}
+        S.scan.deRoutePages[S.scan.classIndex or 0] = S.page
+        if Scan.purchaseRequest then return Scan.CompletePurchaseRequest() end
         S.scan.miss = S.miss
         local cut = ns.Disenchant.CheckTail(S.scan, batch)
         local blocked = S.scan.deOptions and S.scan.deOptions.cut and S.scan.deCutDisabled
         if (cut or blocked) and S.page < S.pages then
-            S.scan.truncated, S.scan.deCut, S.scan.deReadPages = true, cut or nil, S.page
+            S.scan.truncated, S.scan.deCut, S.scan.deReadPages = true, cut or nil, S.scan.deScannedPages
             S.scan.deCutStopped = blocked or nil
-            return finish()
+            if blocked or not S.scan.deClasses then return finish() end
+            S.page = S.pages
         end
     end
-    if S.page >= S.pages then return finish() end
+    if S.page >= S.pages then
+        local classes = S.scan.deClasses
+        local nextClass = classes and classes[(S.scan.deRoute or 1) + 1]
+        if not nextClass then return finish() end
+        S.scan.deRoute = (S.scan.deRoute or 1) + 1
+        S.scan.classIndex, S.scan.deExpectedBase = nextClass, S.expect
+        local range = S.scan.deRanges and S.scan.deRanges[nextClass]
+        if range then S.scan.minLevel, S.scan.maxLevel = range.minLevel, range.maxLevel end
+        S.scan.deTailPages, S.scan.deLastPrice = 0, nil
+        S.page, S.pages, S.sig, S.stale, S.rereads = 0, 0, "", 0, 0
+        S.phase, S.nextAt = "send", math.max(now, S.sentAt + S.gap)
+        return
+    end
     S.phase, S.nextAt = "send", math.max(now, S.sentAt + S.gap)
     local left = math.ceil((now - S.startedAt) / S.page * (S.pages - S.page) / 60)
     status("stPageEta", S.page + 1, S.pages, left)
@@ -265,6 +289,11 @@ function Scan.Start(mode, target)
             S.scan.classIndex, S.scan.minLevel, S.scan.maxLevel, S.scan.minQuality = target.classIndex,
                 target.minLevel, target.maxLevel, target.minQuality
             S.scan.deOptions = target.deOptions
+            S.scan.deClasses, S.scan.deRoute = target.deClasses, 1
+            if target.deClasses then S.scan.classIndex = target.deClasses[1] end
+            S.scan.deRanges = target.deRanges
+            local range = target.deRanges and target.deRanges[S.scan.classIndex]
+            if range then S.scan.minLevel, S.scan.maxLevel = range.minLevel, range.maxLevel end
             S.scan.deTarget = ns.Disenchant.Group(target.deGroup).targetID
             ns.Disenchant.Prepare(S.scan)
         end
@@ -326,7 +355,40 @@ function Scan.OnUpdate(elapsed)
 end
 function Scan.Stop()
     if S.phase == "idle" then return false end
+    ns.Store.DB().pending = nil
     fail("stStopped")
+    return true
+end
+function Scan.CheckpointDisenchant()
+    local scan = S.scan
+    if not scan or scan.scope ~= "disenchant" or (scan.deScannedPages or S.page) < 1 then return end
+    local draft = {}
+    for key, value in pairs(scan) do
+        if type(value) == "table" then
+            draft[key] = {}; for k, v in pairs(value) do draft[key][k] = v end
+        else draft[key] = value end
+    end
+    draft.truncated, draft.deSavedPartial = true, true
+    draft.deReadPages = scan.deScannedPages or S.page
+    draft.total, draft.expect, draft.miss, draft.secs = #draft.lots, S.expect, S.miss, time() - draft.t
+    local db = ns.Store.DB(); db.disenchantDrafts = db.disenchantDrafts or {}
+    db.disenchantDrafts[scan.deGroup] = draft
+    return draft
+end
+function Scan.CompletePurchaseRequest()
+    local request = Scan.purchaseRequest
+    if not request then return false end
+    local draft = Scan.CheckpointDisenchant()
+    Scan.purchaseRequest = nil
+    if not draft then return false end
+    fail("stStopped")
+    request.ready()
+    return true
+end
+function Scan.SnapshotForPurchase(key, ready)
+    if Scan.purchaseRequest or not S.scan or S.scan.deGroup ~= key then return false end
+    Scan.purchaseRequest = {key = key, ready = ready}
+    if S.phase == "send" or S.phase == "paused" then return Scan.CompletePurchaseRequest() end
     return true
 end
 function Scan.ResetPace(silent)
@@ -350,6 +412,7 @@ function Scan.OnMessage(event, text)
     if S.mode == "pages" and S.phase ~= "paused" then refused(GetTime(), "error") end
 end
 function Scan.Save()
+    Scan.CheckpointDisenchant()
     local db = ns.Store.DB()
     db.pending = nil
     if S.phase == "idle" or S.mode ~= "pages" or not S.scan then return end
@@ -384,6 +447,7 @@ function Scan.OnShow()
 end
 function Scan.OnClose()
     S.open = false
+    Scan.CheckpointDisenchant()
     if S.phase == "idle" or S.phase == "paused" then return end
     Scan.Trace("AUCTION_HOUSE_CLOSED")
     if S.mode == "pages" then return pause("sayClosed") end

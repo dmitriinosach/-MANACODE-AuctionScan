@@ -1,17 +1,45 @@
 local _, ns = ...
 local UI = {group = "wrathArmor", fee = 0.05, rows = {}, qualities = {[2] = true},
     mode = "equipment", target = 10940, equipmentGroup = "wrathArmor",
-    selling = {hours = 12, losses = 1}, tail = true, tailPercent = -10, buyPercent = 0, minItemLevel = 0}
+    selling = {hours = 12, losses = 1}, tail = true, tailPercent = -10, buyPercent = 0, minItemLevel = 0, maxItemLevel = 0,
+    includeNoLevel = false}
 ns.DisenchantUI = UI
 function UI:SelectGroup(key)
     local group = ns.Disenchant.Group(key)
+    local old = ns.Disenchant.Group(self.group)
     if not group then return end
     if self.group ~= key then ns.Disenchant.CancelBuy(); ns.Batch.Stop(); self.scroll.offset = 0; self.selected = nil end
     if group.targetID then self.mode, self.target = "target", group.targetID
     else self.mode, self.equipmentGroup = "equipment", key end
+    if group.targetID and (old.targetID ~= group.targetID or self.minItemLevel == 0) then
+        self.minItemLevel = group.minItemLevel or 0
+        self.maxItemLevel = group.maxItemLevel or 0
+    elseif not group.targetID and old.targetID then self.minItemLevel, self.maxItemLevel = 0, 0 end
+    if self.ilvlEdit then self.ilvlEdit:SetText(tostring(self.minItemLevel)) end
+    if self.maxIlvlEdit then self.maxIlvlEdit:SetText(tostring(self.maxItemLevel)) end
     self.qualities = {}
     for quality = 2, 4 do self.qualities[quality] = ns.Disenchant.HasQuality(group, quality) end
     self.group = key; self:Render()
+    ns.Store.DB().disenchantUI = {group = self.group, target = self.target, equipmentGroup = self.equipmentGroup,
+        minItemLevel = self.minItemLevel, maxItemLevel = self.maxItemLevel, includeNoLevel = self.includeNoLevel}
+end
+function UI:RestoreSelection()
+    local saved = ns.Store.DB().disenchantUI
+    if type(saved) ~= "table" or type(saved.group) ~= "string" then return end
+    local group = ns.Disenchant.Group(saved.group)
+    if not group then return end
+    self.group, self.mode = group.key, group.targetID and "target" or "equipment"
+    local target = type(saved.target) == "number" and ns.Disenchant.Group("target" .. saved.target .. "_234")
+    self.target = group.targetID or (target and target.targetID) or self.target
+    self.minItemLevel = type(saved.minItemLevel) == "number" and saved.minItemLevel
+        or group.minItemLevel or 0
+    self.maxItemLevel = type(saved.maxItemLevel) == "number" and saved.maxItemLevel
+        or group.maxItemLevel or 0
+    self.includeNoLevel = saved.includeNoLevel == true
+    local equipment = type(saved.equipmentGroup) == "string" and ns.Disenchant.Group(saved.equipmentGroup)
+    if equipment and not equipment.targetID then self.equipmentGroup = equipment.key end
+    self.qualities = {}
+    for quality = 2, 4 do self.qualities[quality] = ns.Disenchant.HasQuality(group, quality) end
 end
 function UI:SelectMode(mode)
     if mode == "target" then
@@ -24,6 +52,9 @@ function UI:Controls()
     if phase == "idle" and not ns.Buy.Active() and (not group.targetID or #ns.Disenchant.Materials(self.group) > 0) then
         self.scan:Enable()
     else self.scan:Disable() end
+    for _, button in ipairs({self.scanMaterials, self.scanAll}) do
+        if self.scan:IsEnabled() then button:Enable() else button:Disable() end
+    end
     if phase == "paused" then self.resume:Show() else self.resume:Hide() end
     if phase ~= "idle" or ns.Buy.Active() then self.stop:Show() else self.stop:Hide() end
     local purchase = ns.Disenchant.purchase
@@ -34,26 +65,52 @@ function UI:Controls()
             or ns.T("deBuySearching"))
         if ns.Buy.state.phase == "ready" then self.buy:Enable() else self.buy:Disable() end
     else
-        self.buy:SetText(ns.T("deBuyByMargin"))
-        if phase == "idle" and not ns.Buy.Active() and self.preview and self.preview.count > 0 then self.buy:Enable() else self.buy:Disable() end
+        self.buy:SetText(ns.T(ns.Scan.purchaseRequest and "deBuyWaitingPage" or "deBuyByMargin"))
+        if self:CanPurchase() and self.preview and self.preview.count > 0 then self.buy:Enable() else self.buy:Disable() end
     end
     if phase == "idle" and not ns.Buy.Active() then self.buyEdit:Show(); self.buyLabel:Show()
     else self.buyEdit:Hide(); self.buyLabel:Hide() end
     local ready = phase == "idle" and not ns.Buy.Active()
     for _, control in ipairs({self.tailCheck, self.feeButton, self.duration.frame, self.groupMenu.frame,
-        self.modeMenu.frame, self.targetPicker.frame}) do
+        self.modeMenu.frame, self.targetPicker.frame, self.noLevelCheck}) do
         if ready then control:Enable() else control:Disable() end
     end
     if not ready then self.modeMenu.cover:Hide(); self.targetPicker.cover:Hide(); self.groupMenu.cover:Hide() end
     for _, control in pairs(self.qualityChecks) do if ready then control:Enable() else control:Disable() end end
-    for _, edit in ipairs({self.tailEdit, self.lossEdit, self.depositEdit, self.ilvlEdit}) do
+    for _, edit in ipairs({self.tailEdit, self.lossEdit, self.depositEdit, self.ilvlEdit, self.maxIlvlEdit}) do
         edit:EnableMouse(ready); if not ready then edit:ClearFocus() end
     end
+end
+function UI:CanPurchase()
+    if not ns.Scan.state.open or ns.Buy.Active() or ns.Scan.purchaseRequest then return false end
+    local progress = ns.Disenchant.Progress(self.group)
+    return ns.Scan.state.phase == "idle" or progress and progress.stage == "equipment"
+        and (ns.Scan.state.scan.deScannedPages or ns.Scan.state.page) > 0
+end
+function UI:Purchase(itemID)
+    if not self:ReadSettings() then return end
+    ns.Disenchant.Purchase(self.group, {fee = self.fee, percent = self.buyPercent,
+        itemID = itemID or (ns.Disenchant.purchase and ns.Disenchant.purchase.options.itemID),
+        minItemLevel = self.minItemLevel, maxItemLevel = self.maxItemLevel, includeNoLevel = self.includeNoLevel,
+        selling = {hours = self.selling.hours, losses = self.selling.losses, base = self.selling.base}})
+    self:Render()
+end
+function UI:StartScan(part)
+    if part ~= "materials" and not self:ReadSettings() then return end
+    ns.Disenchant.Scan(self.group, false, {fee = self.fee, cut = self.tail,
+        percent = self.tailPercent, minItemLevel = self.minItemLevel, maxItemLevel = self.maxItemLevel,
+        includeNoLevel = self.includeNoLevel,
+        selling = {hours = self.selling.hours, losses = self.selling.losses, base = self.selling.base}}, part)
+    self:Render()
 end
 function UI:ReadSettings()
     local levelText = self.ilvlEdit:GetText()
     local level = levelText == "" and 0 or tonumber(levelText)
-    if not level or level < 0 or level > 999 or level ~= math.floor(level) then
+    local maximumText = self.maxIlvlEdit:GetText()
+    local maximum = maximumText == "" and 0 or tonumber(maximumText)
+    if not level or level < 0 or level > 999 or level ~= math.floor(level)
+        or not maximum or maximum < 0 or maximum > 999 or maximum ~= math.floor(maximum)
+        or maximum > 0 and level > maximum then
         ns.say(ns.T("deInvalidItemLevel")); return false
     end
     local tail, buy = tonumber((self.tailEdit:GetText():gsub(",", "."))), tonumber((self.buyEdit:GetText():gsub(",", ".")))
@@ -61,6 +118,9 @@ function UI:ReadSettings()
         ns.say(ns.T("alchemyInvalidPrice")); return false
     end
     self.tailPercent, self.buyPercent, self.minItemLevel = tail, buy, level
+    self.maxItemLevel = maximum
+    local saved = ns.Store.DB().disenchantUI
+    if saved and saved.group == self.group then saved.minItemLevel, saved.maxItemLevel = level, maximum end
     return true
 end
 function UI:Commit(edit, apply, show)
@@ -81,6 +141,24 @@ function UI:NewSettings(parent)
         if value and value >= 0 and value <= 999 and value == math.floor(value) then self.minItemLevel = value end
     end, function() return tostring(self.minItemLevel) end)
     K.Tooltip(self.ilvlEdit, ns.T("deMinItemLevel"), ns.T("deMinItemLevelTip"))
+    K.Label(parent, ns.T("deMaxItemLevel"), 508, -36, 68)
+    self.maxIlvlEdit = K.Edit(parent, 48); self.maxIlvlEdit:SetText(tostring(self.maxItemLevel))
+    self.maxIlvlEdit:SetPoint("TOPLEFT", parent, "TOPLEFT", 580, -30)
+    self:Commit(self.maxIlvlEdit, function(text)
+        local value = text == "" and 0 or tonumber(text)
+        if value and value >= 0 and value <= 999 and value == math.floor(value) then self.maxItemLevel = value end
+    end, function() return tostring(self.maxItemLevel) end)
+    K.Tooltip(self.maxIlvlEdit, ns.T("deMaxItemLevel"), ns.T("deMaxItemLevelTip"))
+    self.noLevelCheck = K.Check(parent, function(value)
+        self.includeNoLevel = value
+        local saved = ns.Store.DB().disenchantUI
+        if saved then saved.includeNoLevel = value end
+        self:Render()
+    end)
+    self.noLevelCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", 640, -31)
+    self.noLevelCheck:SetChecked(self.includeNoLevel)
+    K.Label(parent, ns.T("deNoLevel"), 660, -36, 90)
+    K.Tooltip(self.noLevelCheck, ns.T("deNoLevel"), ns.T("deNoLevelTip"))
     self.tailCheck = K.Check(parent, function(value) self.tail = value; self:Render() end)
     self.tailCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -60)
     self.tailCheck:SetChecked(self.tail)
@@ -188,7 +266,11 @@ function UI:Render()
     if not self.frame then return end
     local K, selected = ns.TradeKit
     local group = ns.Disenchant.Group(self.group)
-    local rows = self.sorter:Apply(ns.Disenchant.Rows(self.group, self.fee, self.selling, self.minItemLevel), {
+    local pickerWidth = math.max(160, math.min(260, (self.frame:GetWidth() or 996) - 448))
+    self.groupMenu.frame:SetWidth(pickerWidth); self.targetPicker.frame:SetWidth(pickerWidth)
+    self.targetPicker.frame.text:SetWidth(pickerWidth - 34)
+    local rows = self.sorter:Apply(ns.Disenchant.Rows(self.group, self.fee, self.selling, self.minItemLevel,
+        self.tail and self.tailPercent or nil, self.maxItemLevel, self.includeNoLevel), {
         item = function(entry) return ns.Markets.Name(entry.id) end,
         price = function(entry) return entry.cost end,
         margin = function(entry) return entry.estimate.margin end,
@@ -202,6 +284,12 @@ function UI:Render()
             and ns.T("deProgressMaterials", progress.index, progress.total, progress.name, progress.page, pages)
             or ns.T("deProgressEquipment", progress.page, pages, progress.lots)
         if progress.paused then progressText = ns.T("deProgressPaused", progressText) end
+        if progress.stage == "equipment" and progress.classIndex and GetAuctionItemClasses then
+            local class = ({GetAuctionItemClasses()})[progress.classIndex]
+            if progress.minLevel then class = ns.T("deQueryLevels", class, progress.minLevel, progress.maxLevel) end
+            progressText = ns.T("deProgressClass", class, progressText)
+        end
+    elseif ns.Scan.state.phase ~= "idle" then progressText = ns.T("deOtherScan")
     end
     self.modeMenu.frame:SetText(ns.T(group.targetID and "deTargetMode" or "deEquipmentMode"))
     if group.targetID then
@@ -226,7 +314,8 @@ function UI:Render()
     self.headerBand:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -302, -(top - 25))
     self.progress:ClearAllPoints(); self.progress:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, -(top - 43))
     self.progress:SetWidth(width)
-    self.progress:SetText(progressText or (#rows > 0 and ns.T("deResultCount", #rows) or ns.T("deStartHint")))
+    self.progress:SetText(progressText or (#rows > 0 and ns.T("deResultCount", #rows)
+        or group.minItemLevel and ns.T("deTargetRange", group.minItemLevel, group.maxItemLevel) or ns.T("deStartHint")))
     local visible = K.ListCapacity(self.frame, top, 56, 29, #self.rows)
     self.scroll.frame:ClearAllPoints()
     self.scroll.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, -top)
@@ -247,11 +336,13 @@ function UI:Render()
             row:SetProps({id = entry.id, width = width,
                 quote = {price = entry.cost, units = target and string.format("%g%%", target.chance * 100) or entry.units},
                 margin = entry.estimate.margin, percent = entry.estimate.percent, active = entry.id == self.selected,
-                match = entry.estimate.fresh and entry.estimate.percent ~= nil
+                match = entry.estimate.percent ~= nil
                     and entry.estimate.percent > self.buyPercent,
                 quality = entry.meta.quality or 2,
-                detail = detail, extraTip = ns.T("deRow", entry.meta.level, entry.meta.skill) .. "\n" .. detail .. "\n" .. ns.T("deModelTip")})
-            row.refresh:Hide()
+                detail = detail, action = self.buyRow, actionLabel = ns.T("deBuyRow"), actionTip = ns.T("deBuyRowTip"),
+                actionDisabled = not self:CanPurchase() or not entry.estimate.percent
+                    or entry.cost > GetMoney(),
+                extraTip = ns.T("deRow", entry.meta.level, entry.meta.skill) .. "\n" .. detail .. "\n" .. ns.T("deModelTip")})
         else row.frame:Hide() end
     end
     local scan = ns.Disenchant.Snapshot(self.group)
@@ -260,7 +351,9 @@ function UI:Render()
     self.empty:SetText(#rows == 0 and ns.T(emptyKey) or "")
     self.status:SetText(progressText or (scan and ns.T("deSnapshot", date("%d.%m %H:%M", scan.t + scan.secs), scan.miss or 0)
         or ns.T("deNotScanned")))
-    if scan and scan.deCut and not progress then
+    if scan and scan.deSavedPartial and not progress then
+        self.status:SetText(ns.T("dePartialSaved", scan.deReadPages or 0, #scan.lots))
+    elseif scan and scan.deCut and not progress then
         self.status:SetText(ns.T("deCutStatus", scan.deReadPages, scan.dePercent))
     elseif scan and scan.deCutStopped and not progress then
         self.status:SetText(ns.T("deCutStopped", ns.T("deCutReason" .. scan.deCutStopped)))
@@ -272,7 +365,7 @@ function UI:Render()
         local estimate = selected.estimate
         self:Spread(estimate)
         self:Outcomes(estimate)
-        self.freshNote:SetText(estimate.fresh and "" or ns.T("deStale"))
+        self.freshNote:SetText(estimate.percent == nil and ns.T("deBuyUnknown") or estimate.fresh and "" or ns.T("deStale"))
         self.summary:SetText(ns.T("deSummary", K.Money(selected.cost), K.Money(estimate.net), K.Money(estimate.margin))
             .. "\n" .. ns.T("deDepositSummary", self.selling.hours, K.Money(estimate.deposit), self.selling.losses, K.Money(estimate.reserve)))
     else
@@ -281,14 +374,34 @@ function UI:Render()
     end
     self.feeButton:SetText(ns.T("tradeFee", math.floor(self.fee * 100 + 0.5)))
     self.preview = ns.Disenchant.PurchasePlan(self.group, {fee = self.fee, selling = self.selling,
-        percent = self.buyPercent, minItemLevel = self.minItemLevel})
-    self.buyPreview:SetText(ns.T("deBuyPreview", self.preview.count, K.Money(self.preview.cost)))
-    if ns.Disenchant.purchase then self.status:SetText(ns.T("deBuyStage", ns.Disenchant.purchase.index,
-        #ns.Disenchant.purchase.plan.items, ns.Buy.state.bought, K.Money(ns.Buy.state.spent))) end
+        percent = self.buyPercent, minItemLevel = self.minItemLevel, maxItemLevel = self.maxItemLevel,
+        includeNoLevel = self.includeNoLevel})
+    local buyGroup = ns.Disenchant.Group(ns.Disenchant.purchase and ns.Disenchant.purchase.key or self.group)
+    local context = buyGroup.targetID and ns.Markets.Name(buyGroup.targetID) or ns.T(buyGroup.labelKey)
+    self.buyPreview:SetWidth(math.max(200, (self.frame:GetWidth() or 996) - 170))
+    self.buyPreview:SetText(ns.T("deBuyContext", context) .. " | "
+        .. ns.T("deBuyPreview", self.preview.count, K.Money(self.preview.cost)))
+    if self.preview.count == 0 and not ns.Disenchant.purchase then
+        local rejected = self.preview.rejected
+        local reason = not ns.Scan.state.open and ns.T("deBuyClosed")
+            or rejected.money > 0 and ns.T("deBuyNoMoney")
+            or rejected.unknown > 0 and ns.T("deBuyUnknown")
+            or rejected.threshold > 0 and ns.T("deBuyBelowThreshold", self.buyPercent)
+            or ns.T("deBuyEmpty")
+        self.buyPreview:SetText(ns.T("deBuyContext", context) .. " | " .. reason)
+    end
+    if self.preview.stale > 0 then
+        self.buyPreview:SetText(ns.T("deBuyStale") .. " | " .. self.buyPreview:GetText())
+    end
+    if ns.Disenchant.purchase then self.status:SetText(ns.T("deBuyStage", ns.Buy.state.page + 1,
+        ns.Buy.state.pages > 0 and tostring(ns.Buy.state.pages) or "?", ns.Buy.Left(),
+        ns.Buy.state.bought, K.Money(ns.Buy.state.spent))) end
     self.summary:SetHeight(selected and 66 or math.max(60, (self.inspector.body:GetHeight() or 374) - 144))
     self:Controls()
 end
 function UI:New(parent)
+    self:RestoreSelection()
+    self.buyRow = function(id) self:Purchase(id) end
     local K = ns.TradeKit
     self.frame = ns.NewFrame("Frame", nil, parent)
     local f = self.frame; f:SetAllPoints(parent)
@@ -325,14 +438,15 @@ function UI:New(parent)
         self.qualityChecks[q] = box
     end
     self:NewSettings(f)
-    self.scan = K.Button(f, ns.T("scanSelection"), 140, function()
-        if not self:ReadSettings() then return end
-        ns.Disenchant.Scan(self.group, IsShiftKeyDown(), {fee = self.fee, cut = self.tail,
-            percent = self.tailPercent, minItemLevel = self.minItemLevel,
-            selling = {hours = self.selling.hours, losses = self.selling.losses, base = self.selling.base}}); self:Render()
-    end, "main")
-    self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -5)
-    K.Tooltip(self.scan, ns.T("deTitle"), ns.T("deScanTip"))
+    self.scanAll = K.Button(f, ns.T("deScanAll"), 68, function() self:StartScan("all") end)
+    self.scanAll:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -5)
+    self.scan = K.Button(f, ns.T("deScanEquipment"), 84, function() self:StartScan("equipment") end, "main")
+    self.scan:SetPoint("RIGHT", self.scanAll, "LEFT", -6, 0)
+    self.scanMaterials = K.Button(f, ns.T("deScanMaterials"), 90, function() self:StartScan("materials") end)
+    self.scanMaterials:SetPoint("RIGHT", self.scan, "LEFT", -6, 0)
+    K.Tooltip(self.scan, ns.T("deScanEquipment"), ns.T("deScanEquipmentTip"))
+    K.Tooltip(self.scanMaterials, ns.T("deScanMaterials"), ns.T("deScanMaterialsTip"))
+    K.Tooltip(self.scanAll, ns.T("deScanAll"), ns.T("deScanAllTip"))
     self.progress = K.Label(f, "", 10, -34, 400, "heading")
     self.progress:SetHeight(16)
     self.headerBand = K.TableHeader(f, -60)
@@ -355,11 +469,7 @@ function UI:New(parent)
     self.feeButton = K.Button(f, "", 106, function() self.fee = self.fee == 0.05 and 0.15 or 0.05; self:Render() end)
     self.feeButton:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 4)
     self.buy = K.Button(f, ns.T("deBuyByMargin"), 160, function()
-        if not self:ReadSettings() then return end
-        ns.Disenchant.Purchase(self.group, {fee = self.fee, percent = self.buyPercent,
-            minItemLevel = self.minItemLevel,
-            selling = {hours = self.selling.hours, losses = self.selling.losses, base = self.selling.base}})
-        self:Render()
+        self:Purchase()
     end, "main")
     self.buy:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     K.Tooltip(self.buy, ns.T("deBuyByMargin"), ns.T("deBuyTip"))
@@ -372,7 +482,7 @@ function UI:New(parent)
     self.buyLabel = K.Label(f, ns.T("deBuyThreshold"), 0, 0, 76)
     self.buyLabel:ClearAllPoints(); self.buyLabel:SetPoint("RIGHT", self.buyEdit, "LEFT", -4, 0)
     self.buyPreview = K.Label(f, "", 160, -96, 460)
-    self.stop = K.Button(f, ns.T("tradeStop"), 60, function() ns.Disenchant.CancelBuy(); ns.Batch.Stop(); ns.Scan.Stop(); self:Controls() end)
+    self.stop = K.Button(f, ns.T("tradeStop"), 60, function() ns.Disenchant.CancelBuy(); ns.Batch.Stop(); ns.Scan.Stop(); self:Render() end)
     self.stop:SetPoint("RIGHT", self.buy, "LEFT", -6, 0)
     self.resume = K.Button(f, ns.T("tradeResume"), 92, function() ns.Scan.Start("pages"); self:Controls() end)
     self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
