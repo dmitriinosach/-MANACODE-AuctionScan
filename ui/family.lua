@@ -1,91 +1,249 @@
 local _, ns = ...
-local UI = {props = {family = 36919, id = 36919, page = 1, days = 7, fee = 0.05}, rows = {}}
+local UI = {props = {id = 36919, page = 1, days = 7, fee = 0.05}, rows = {}, groups = {}, opened = {[36919] = true},
+    collapsed = {}, expansions = {wrath = true, bc = false}, batchState = {make = {}, ignore = {}, craftAll = false, owned = false}}
 ns.FamilyUI = UI
 function UI:SetProps(props)
-    if props.family and props.family ~= self.props.family then
-        if ns.Batch then ns.Batch.Stop() end
+    if props.family then
+        self.opened[props.family] = true
         self.props.id = props.family
-        if self.scroll then self.scroll.offset = 0 end
+        self.focus = props.family
     end
-    for key, value in pairs(props) do self.props[key] = value end
+    for key, value in pairs(props) do if key ~= "family" then self.props[key] = value end end
+    local family = ns.gemByItem[self.props.id]
+    if family then self.opened[family.raw] = true end
     self:Render()
+end
+local function age(seconds)
+    if not seconds then return ns.T("craftGroupNoScan") end
+    if seconds >= 3600 then return ns.T("craftGroupAge", ns.T("deHours", math.floor(seconds / 3600))) end
+    return ns.T("craftGroupAge", ns.T("tradeAge", math.floor(seconds / 60)))
+end
+function UI:Lines(fee)
+    local F, H = ns.Family, ns.Hidden
+    local lines, hidden = {}, {}
+    for _, group in ipairs(F.Groups()) do
+        if self.expansions[group.expansion] then
+            if H.IsGroup(group.key) then hidden[#hidden + 1] = {group = group}
+            else
+                lines[#lines + 1] = {group = group}
+                if not self.collapsed[group.key] then
+                    for _, family in ipairs(ns.Collections.Order(group.families)) do
+                        if H.Is(family.raw) then hidden[#hidden + 1] = {family = family}
+                        else
+                            lines[#lines + 1] = {family = family, group = group}
+                            if self.opened[family.raw] then
+                                local cuts = {}
+                                for _, id in ipairs(family.members) do
+                                    if id ~= family.raw and not H.Is(id) then cuts[#cuts + 1] = id end
+                                end
+                                cuts = self.sorter:Apply(cuts, {
+                                    item = function(id) return ns.Markets.Name(id) end,
+                                    price = function(id) local q = ns.Markets.Quote(id); return q and q.price end,
+                                    margin = function(id) return F.Margin(id, fee) end,
+                                    units = function(id) local q = ns.Markets.Quote(id); return q and q.units end,
+                                })
+                                for _, id in ipairs(cuts) do lines[#lines + 1] = {cut = id, family = family, group = group} end
+                                for _, id in ipairs(family.members) do
+                                    if id ~= family.raw and H.Is(id) then hidden[#hidden + 1] = {cut = id, family = family} end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if #hidden > 0 then
+        lines[#lines + 1] = {spoiler = true, count = #hidden}
+        if self.showHidden then for _, entry in ipairs(hidden) do entry.hidden = true; lines[#lines + 1] = entry end end
+    end
+    return lines, hidden
+end
+function UI:ToggleGroup(key)
+    self.collapsed[key] = not self.collapsed[key] or nil
+    self:Render()
+end
+function UI:ToggleFamily(raw)
+    self.opened[raw] = not self.opened[raw] or nil
+    self:Render()
+end
+function UI:GroupProps(group, width, fee)
+    local K, F = ns.TradeKit, ns.Family
+    local families, known, total, best = 0, 0, 0
+    for _, family in ipairs(group.families) do
+        if not ns.Hidden.Is(family.raw) then
+            families = families + 1
+            local k, t = F.Learned(family)
+            known, total = known + k, total + t
+            local _, margin = F.Best(family, fee)
+            if margin and (not best or margin > best) then best = margin end
+        end
+    end
+    return {key = group.key, width = width, open = not self.collapsed[group.key], actionWidth = 190,
+        name = ns.T("craftGroupName", ns.T(group.expansion == "bc" and "craftBC" or "craftWrath"),
+            ns.T("familyQuality" .. group.quality)),
+        detail = ns.T("craftGroupDetail", families, known, total, K.Money(best)) .. " | " .. age(F.GroupAge(group)),
+        tag = "", tip = ns.T("craftGroupTip"),
+        actions = {{label = ns.T("craftScanGroup"), width = 118, tip = ns.T("craftGroupTip"),
+                fn = function(key) F.CompleteGroup(key, K.ScanMode()); self:Render() end},
+            {label = ns.T("hiddenHide"), width = 64, tip = ns.T("hiddenHideTip"),
+                fn = function(key) ns.Hidden.SetGroup(key, true); self:Render() end}}}
+end
+function UI:FamilyProps(family, width, fee, columns)
+    local K, F = ns.TradeKit, ns.Family
+    local raw = family.raw
+    local q = ns.Markets.Quote(raw)
+    local bestID, bestMargin = F.Best(family, fee)
+    local known, total = F.Learned(family)
+    local bestQuote = bestID and ns.Markets.Quote(bestID)
+    local detail = ns.T("craftFamilyDetail", total, age(q and q.at and not q.vendor and math.max(0, time() - q.at) or nil))
+    if not columns.best and bestID then
+        detail = ns.T("craftBestCutRow", ns.Markets.Name(bestID), K.Money(bestQuote and bestQuote.price)) .. " | " .. detail
+    end
+    local actions = {{label = ns.T("craftScanRow"), tip = ns.T("craftScanFamilyTip"),
+        fn = function(id) F.Complete(id, K.ScanMode()); self:Render() end}}
+    if columns.action[2] >= 190 then
+        actions[#actions + 1] = {label = ns.T("tradeBuy"), tip = ns.T("craftBuyRaw"), fn = function(id) ns.Trader.OpenBuy(id) end}
+    end
+    actions[#actions + 1] = {label = ns.T("hiddenHide"), tip = ns.T("hiddenHideTip"),
+        fn = function(id) ns.Hidden.Set(id, true); self:Render() end}
+    return {id = raw, quality = family.quality, width = width, depth = 0, expandable = true, opened = self.opened[raw],
+        active = raw == self.props.id, detail = detail, price = q and q.price, change = F.Change(raw),
+        best = bestID, bestPrice = bestQuote and bestQuote.price, margin = bestMargin,
+        percent = bestMargin and q and q.price and q.price > 0 and bestMargin / q.price * 100 or nil,
+        units = q and q.units, state = ns.T("craftLearned", known, total),
+        stateTone = known == total and total > 0 and "positive" or (known == 0 and "secondary" or "text"),
+        tip = ns.T("craftLearnedTip"), actions = actions}
+end
+function UI:CutProps(id, family, width, fee)
+    local K, F = ns.TradeKit, ns.Family
+    local q, raw = ns.Markets.Quote(id), ns.Markets.Quote(family.raw)
+    local margin, known = F.Margin(id, fee), F.Known(id)
+    local state = known == true and "craftRecipeKnown" or (known == false and "craftRecipeUnknown" or "craftRecipeUnchecked")
+    return {id = id, quality = family.quality, width = width, depth = 1, expandable = false,
+        active = id == self.props.id, detail = ns.T(state), price = q and q.price, change = F.Change(id),
+        margin = margin, percent = margin and raw and raw.price and raw.price > 0 and margin / raw.price * 100 or nil,
+        units = q and q.units, state = ns.T(state), unlearned = known == false,
+        stateTone = known == true and "positive" or (known == false and "negative" or "secondary"),
+        actions = {{label = ns.T("craftScanRow"), tip = ns.T("craftScanRowTip"),
+                fn = function(item) ns.Batch.Complete({item}, K.ScanMode()); self:Render() end},
+            {label = ns.T("hiddenHide"), tip = ns.T("hiddenHideTip"),
+                fn = function(item) ns.Hidden.Set(item, true); self:Render() end}}}
 end
 function UI:Render()
     if not self.frame then return end
-    local K, p = ns.TradeKit, self.props
+    local K, p, F = ns.TradeKit, self.props, ns.Family
     local width = (self.frame:GetWidth() or 996) - 310
-    local columns = K.MarketColumns(width)
+    local columns = K.CraftColumns(width)
     for key, label in pairs(self.headers) do
+        local column = columns[key]
         label:ClearAllPoints()
-        label:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10 + columns[key][1], -38)
-        label:SetWidth(columns[key][2])
+        if column then
+            label:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10 + column[1] + (key == "item" and 6 or 0), -40)
+            label:SetWidth(column[2] - 6); label:Show()
+        else label:Hide() end
     end
+    self.sorter:Mark()
     self.tableWidth = width
-    local family = ns.gemByRaw[p.family]
-    local members = ns.Collections.OrderIDs(family.members)
-    local function margin(id)
-        local q, base = ns.Markets.Quote(id), ns.Markets.Quote(family.raw)
-        if id ~= family.raw and base and base.price and q and q.price and base.miss == 0 and q.miss == 0 then
-            return q.price * (1 - p.fee) - base.price
+    for key, chip in pairs(self.expansionChips) do chip:SetChecked(self.expansions[key]) end
+    local lines, hidden = self:Lines(p.fee)
+    if self.focus then
+        for i, line in ipairs(lines) do
+            if line.family and line.family.raw == self.focus and not line.hidden then self.scroll.offset = i - 1; break end
+        end
+        self.focus = nil
+    end
+    local visible = K.ListCapacity(self.frame, 62, 60, 30, #self.rows + #self.groups)
+    local offset = self.scroll:SetRange(#lines, visible)
+    local usedRows, usedGroups = 0, 0
+    self.spoiler:Hide()
+    for i = 1, visible do
+        local line = lines[offset + i]
+        local y = -62 - (i - 1) * 30
+        if line and line.spoiler then
+            self.spoiler:ClearAllPoints(); self.spoiler:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, y)
+            self.spoiler:SetWidth(width); self.spoiler:SetHeight(28)
+            self.spoiler:SetText(ns.T(self.showHidden and "hiddenSpoilerOpen" or "hiddenSpoilerClosed", line.count))
+            self.spoiler:Show()
+        elseif line and line.group and not line.family and not line.cut then
+            usedGroups = usedGroups + 1
+            local header = self.groups[usedGroups]
+            if header then
+                header.frame:ClearAllPoints(); header.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, y)
+                local props = self:GroupProps(line.group, width, p.fee)
+                if line.hidden then
+                    props.open, props.detail = true, ns.T("craftHiddenGroup", props.detail)
+                    props.actions = {{label = ns.T("hiddenRestore"), width = 64, tip = ns.T("hiddenRestoreTip"),
+                        fn = function(key) ns.Hidden.SetGroup(key, false); self:Render() end}}
+                end
+                header:SetProps(props)
+            end
+        elseif line then
+            usedRows = usedRows + 1
+            local row = self.rows[usedRows]
+            if row then
+                row.frame:ClearAllPoints(); row.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, y)
+                local props = line.cut and self:CutProps(line.cut, line.family, width, p.fee)
+                    or self:FamilyProps(line.family, width, p.fee, columns)
+                if line.hidden then
+                    props.expandable, props.opened = false, false
+                    props.detail = props.detail .. ns.T("hiddenRowNote")
+                    props.actions = {{label = ns.T("hiddenRestore"), tip = ns.T("hiddenRestoreTip"),
+                        fn = function(id) ns.Hidden.Set(id, false); self:Render() end}}
+                end
+                row:SetProps(props)
+            end
         end
     end
-    local rest = {}
-    for i = 2, #members do rest[#rest + 1] = members[i] end
-    rest = self.sorter:Apply(rest, {
-        item = function(id) return ns.Markets.Name(id) end,
-        price = function(id) local q = ns.Markets.Quote(id); return q and q.price end,
-        margin = margin,
-        units = function(id) local q = ns.Markets.Quote(id); return q and q.units end,
-    })
-    for i = 2, #members do members[i] = rest[i - 1] end
-    self.sorter:Mark()
-    self.picker:SetProps({families = ns.gemFamilies, raw = family.raw})
-    local visible = ns.TradeKit.ListCapacity(self.frame, 56, 56, 24, #self.rows)
-    local offset = self.scroll:SetRange(#family.members - 1, math.max(1, visible - 1))
-    self.status:SetWidth(width - 170)
-    local raw = ns.Markets.Quote(family.raw)
-    for i, row in ipairs(self.rows) do
-        local id = i <= visible and members[i == 1 and 1 or offset + i]
-        if id then
-            local q, margin = ns.Markets.Quote(id)
-            if id ~= family.raw and raw and raw.price and q and q.price and raw.miss == 0 and q.miss == 0 then
-                margin = q.price * (1 - p.fee) - raw.price
-            end
-            local age = q and ns.T("tradeAge", math.max(0, math.floor((time() - q.at) / 60))) or ns.T("familyNotSeen")
-            if q and q.miss > 0 then age = ns.T("tradeIncomplete") end
-            row:SetProps({id = id, quote = q, margin = margin, active = id == p.id,
-                width = width, detail = age})
-        else row.frame:Hide() end
-    end
-    self.fee:SetText(ns.T("tradeFee", math.floor(p.fee * 100 + 0.5)))
+    for i = usedRows + 1, #self.rows do self.rows[i].frame:Hide() end
+    for i = usedGroups + 1, #self.groups do self.groups[i].frame:Hide() end
+    self.feeSegment:Select(p.fee)
     self.inspector:SetProps({id = p.id})
-    local h = ns.Family.History(p.id, p.days)
-    self.chart:SetProps(h)
-    self.stats:SetText(ns.T("familyStats", h.count, K.Money(h.median),
-        h.volatility and string.format("%.1f%%", h.volatility) or ns.T("familyNotEnough")))
     local q = ns.Markets.Quote(p.id)
-    local scenario = h.count >= 2 and h.median and q and q.price and q.miss == 0
-        and (h.median * (1 - p.fee) - q.price) or nil
-    self.scenario:SetText(scenario and ns.T("familyScenario", K.Money(scenario)) or "")
-    self.current:SetText(ns.T("familyCurrentPrice", K.Money(q and q.price)))
-    local activity = ns.Activity.Recent(p.id)
-    self.activity:SetText(activity and ns.T("marketActivity", date("%d.%m %H:%M", activity.from),
-        date("%d.%m %H:%M", activity.at), activity.oldUnits, activity.units,
-        activity.added, activity.addedUnits, activity.gone, activity.goneUnits,
-        activity.beforeExpiry, activity.expiryPossible) or ns.T("marketActivityMissing"))
-    if (self.history:GetHeight() or 484) >= 426 then self.activity:Show() else self.activity:Hide() end
-    self.recipe:SetText(ns.Family.Recipe(p.id))
+    self.current:SetText(ns.T("familyCurrentPrice", K.Money(q and q.price)) .. " | " .. F.Recipe(p.id))
+    self:RenderBatch()
     self:Controls()
-    for days, button in pairs(self.periods) do
-        button:SetActive(days == p.days)
+    self.scan.tipFn = function()
+        local sources = {}
+        for _, group in ipairs(F.Groups()) do
+            if self.expansions[group.expansion] and not ns.Hidden.IsGroup(group.key) then
+                for _, family in ipairs(group.families) do
+                    if not ns.Hidden.Is(family.raw) then sources[#sources + 1] = {family = family.raw} end
+                end
+            end
+        end
+        return ns.T("familyScanAllTip") .. "\n\n" .. ns.Batch.PreviewText(sources, true)
     end
 end
+function UI:BatchRecipe(id)
+    local family = ns.gemByItem[id]
+    if not family then return nil end
+    local cut = id ~= family.raw and id or ns.Family.Best(family, self.props.fee)
+    if not cut then
+        for _, member in ipairs(family.members) do
+            if member ~= family.raw and ns.Family.Known(member) ~= false and not ns.Hidden.Is(member) then cut = member; break end
+        end
+    end
+    if not cut then return nil end
+    return {raw = cut, count = 1, inputs = {{family.raw, 1}}, spell = family.spells[cut], category = "jewelrySection"}, cut
+end
+function UI:RenderBatch()
+    local recipe, cut = self:BatchRecipe(self.props.id)
+    local state = self.batchState
+    state.fee = self.props.fee
+    self.batch:SetProps({recipe = recipe, options = state, known = cut and ns.Family.Known(cut) or nil,
+        change = function(key, value, id)
+            if key == "make" then state.make[id] = value
+            elseif key == "ignore" then state.ignore[id] = value or nil
+            else state[key] = value end
+            self:Render()
+        end,
+        buy = function(id, need) ns.Trader.OpenBuy(id, need) end})
+end
 function UI:Controls()
-    if not self.stop then return end
+    if not self.update then return end
     local phase = ns.Scan.state.phase
-    if phase == "idle" then self.stop:Hide() else self.stop:Show() end
     if phase == "idle" then self.update:Show() else self.update:Hide() end
-    if phase == "paused" then self.resume:Show() else self.resume:Hide() end
     if phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
 end
 function UI:New(parent)
@@ -93,80 +251,73 @@ function UI:New(parent)
     self.frame = ns.NewFrame("Frame", nil, parent)
     local f = self.frame
     f:SetAllPoints(parent)
-    self.mode = K.ProfessionModes(f, function() return "jewelry" end, "craft")
-    self.picker = K.FamilyPicker:New(f, function(raw) self:SetProps({family = raw}) end)
-    self.familyChoice = self.picker.frame
-    self.familyChoice:SetPoint("TOPLEFT", f, "TOPLEFT", 114, -3)
-    self.familyChoice:SetWidth(244)
-    self.familyChoice.text:SetWidth(212)
-    self.scan = K.Button(f, ns.T("scanSelection"), 140, function()
-        ns.Family.Complete(self.props.family, IsShiftKeyDown()); self:Render()
+    local expansions = K.Label(f, ns.T("craftExpansions"), 0, 0, 80, "secondary")
+    expansions:SetHeight(12); expansions:ClearAllPoints()
+    expansions:SetPoint("LEFT", f, "TOPLEFT", 12, -14)
+    self.expansionChips = {}
+    local previous = expansions
+    for _, key in ipairs({"wrath", "bc"}) do
+        local expansion = key
+        local chip = K.Chip(f, ns.T(expansion == "bc" and "craftBC" or "craftWrath"), function(checked)
+            self.expansions[expansion] = checked; self.scroll.offset = 0; self:Render()
+        end)
+        chip:SetPoint("LEFT", previous, "RIGHT", 6, 0)
+        chip:SetChecked(self.expansions[expansion])
+        self.expansionChips[expansion] = chip
+        previous = chip
+    end
+    local hasBC = false
+    for _, family in ipairs(ns.gemFamilies) do if family.expansion == "bc" then hasBC = true end end
+    if not hasBC then self.expansionChips.bc:Disable(); K.Tooltip(self.expansionChips.bc, ns.T("craftBC"), ns.T("craftBCTip")) end
+    self.scan = K.Button(f, ns.T("craftListScan"), 150, function()
+        ns.Family.CompleteAll(self.expansions, K.ScanMode()); self:Render()
     end, "main")
-    self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -282, -5)
-    K.Tooltip(self.scan, ns.T("familyScan"), ns.T("familyScanTip"))
-    K.TableHeader(f, -38)
+    self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -282, -3)
+    K.Tooltip(self.scan, ns.T("craftListScan"), ns.T("familyScanAllTip"))
+    self.headerBand = K.TableHeader(f, -42)
     self.headers = {}
-    for _, entry in ipairs({{"item", "tradeItem"}, {"price", "tradeUnitPrice"},
-        {"margin", "familyMargin"}, {"units", "tradeUnits"}}) do
-        local label = K.Label(f, ns.T(entry[2]), 0, -38, 100)
-        if entry[1] ~= "item" then label:SetJustifyH("RIGHT") end
+    for _, entry in ipairs({{"item", "craftColGem"}, {"price", "craftColPrice"}, {"best", "craftBestCut"},
+        {"margin", "familyMargin"}, {"units", "craftColSupply"}, {"state", "craftColRecipes"}}) do
+        local label = K.Label(f, ns.T(entry[2]), 0, -40, 100)
+        label:SetHeight(12)
+        if entry[1] ~= "item" and entry[1] ~= "best" then label:SetJustifyH("RIGHT") end
         self.headers[entry[1]] = label
     end
-    self.sorter = K.Sorter(f, self.headers, function() self.scroll.offset = 0; self:Render() end)
-    self.scroll = K.TableScroll(f, function() self:Render() end, 80, 56, 24)
+    self.sorter = K.Sorter(f, self.headers, function() self:Render() end)
+    self.scroll = K.TableScroll(f, function() self:Render() end, 62, 60, 30)
     for i = 1, 40 do
-        local row = K.MarketRow:New(f, function(id) self:SetProps({id = id}) end)
-        row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -56 - (i - 1) * 24)
-        row.frame:SetHeight(24)
+        local row = K.CraftRow:New(f, function(id) self:SetProps({id = id}) end, function(id) self:ToggleFamily(id) end)
+        row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -62 - (i - 1) * 30)
+        row.frame:Hide()
         self.rows[i] = row
         self.scroll:Wheel(row.frame)
     end
-    self.fee = K.Button(f, "", 106, function() self:SetProps({fee = self.props.fee == 0.05 and 0.15 or 0.05}) end)
-    self.fee:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 4)
-    K.Tooltip(self.fee, ns.T("tradeFeeTitle"), ns.T("tradeFeeTip"))
-    self.status = K.Label(f, ns.T("tradeReadyShort"), 0, 0, 440)
-    self.status:ClearAllPoints()
-    self.status:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 32)
-    self.status:SetHeight(14)
+    for i = 1, 8 do
+        local header = K.GroupRow:New(f, function(key) self:ToggleGroup(key) end)
+        header.frame:Hide(); self.scroll:Wheel(header.frame); self.groups[i] = header
+    end
+    self.spoiler = K.Button(f, "", 400, function() self.showHidden = not self.showHidden; self:Render() end, "quiet")
+    self.spoiler.text:ClearAllPoints(); self.spoiler.text:SetPoint("LEFT", self.spoiler, "LEFT", 10, 0)
+    self.spoiler:Hide()
+    K.Tooltip(self.spoiler, ns.T("hiddenSection"), ns.T("hiddenSpoilerTip"))
+    self.feeSegment = K.Segment(f, {{key = 0.05, label = ns.T("deFeeOption", 5)}, {key = 0.15, label = ns.T("deFeeOption", 15)}},
+        function(fee) self:SetProps({fee = fee}) end)
+    self.feeSegment.frame:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 4)
+    K.Tooltip(self.feeSegment.frame, ns.T("tradeFeeTitle"), ns.T("tradeFeeTip"))
     self.buy = K.Button(f, ns.T("tradeBuy"), 84, function() ns.Trader.OpenBuy(self.props.id) end)
     self.buy:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     self.update = K.Button(f, ns.T("tradeUpdate"), 84, function() ns.Markets.Scan(self.props.id) end)
     self.update:SetPoint("RIGHT", self.buy, "LEFT", -6, 0)
     K.Tooltip(self.update, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
-    self.stop = K.Button(f, ns.T("tradeStop"), 60, function() ns.Scan.Stop(); self:Controls() end)
-    self.stop:SetPoint("RIGHT", self.buy, "LEFT", -6, 0)
-    self.resume = K.Button(f, ns.T("tradeResume"), 92, function()
-        if ns.Scan.state.phase == "paused" then ns.Scan.Start("pages") end
-        self:Controls()
-    end)
-    self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
     self.inspector = K.Inspector:New(f)
     local h = self.inspector.body
     self.historyItem = self.inspector.item
     self.history = h
-    self.periods = {}
-    for i, days in ipairs({1, 7, 30}) do
-        local b = K.Button(h, ns.T("familyDays", days), 76, function() self:SetProps({days = days}) end)
-        b:SetPoint("TOPLEFT", h, "TOPLEFT", 12 + (i - 1) * 82, -42)
-        self.periods[days] = b
-    end
-    self.current = K.Label(h, "", 12, -74, 240)
-    self.chart = K.PriceChart:New(h)
-    self.chart.frame:SetPoint("TOPLEFT", h, "TOPLEFT", 12, -97)
-    self.stats = K.Label(h, "", 12, -238, 240)
-    self.stats:SetHeight(44)
-    self.stats:SetJustifyV("TOP")
-    self.activity = K.Label(h, "", 12, -290, 240)
-    self.activity:SetHeight(112); self.activity:SetJustifyV("TOP")
-    self.recipe = K.Label(self.inspector.frame, "", 40, -28, 212)
-    self.recipe:SetHeight(10)
-    self.recipe:SetTextColor(unpack(K.theme.secondary))
-    self.scenario = K.Label(h, "", 0, 0, 240)
-    self.scenario:ClearAllPoints()
-    self.scenario:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", 12, 10)
-    self.scenario:SetHeight(32)
-    self.scenario:SetJustifyV("BOTTOM")
-    K.Tooltip(self.inspector.frame, ns.T("familyHistory"), ns.T("familyHistoryTip") .. "\n\n" .. ns.T("marketActivityTip"))
+    self.current = K.Label(h, "", 12, -44, 240, "secondary")
+    self.current:SetHeight(12)
+    self.batch = K.BatchPanel:New(h)
+    self.batch.frame:SetPoint("TOPLEFT", h, "TOPLEFT", 12, -62)
+    self.batch.frame:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", -6, 8)
     f:SetScript("OnSizeChanged", function() self:Render() end)
     self:Render()
     return self

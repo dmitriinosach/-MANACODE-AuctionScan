@@ -23,6 +23,39 @@ local function shift(frame, x, y)
     local point, relative, anchor, left, top = frame:GetPoint(1)
     if point then frame:ClearAllPoints(); frame:SetPoint(point, relative, anchor, left + x, top + y) end
 end
+function W.BuyoutFirst(row, count, buyout, amount)
+    local money, frame = region(row, "MoneyFrame"), region(row, "BuyoutFrame")
+    MoneyFrame_Update(money:GetName(), buyout > 0 and buyout or amount)
+    money:SetAlpha(buyout > 0 and 1 or 0.45)
+    local perUnit = buyout > 0 and count > 1
+    money:ClearAllPoints(); money:SetPoint("RIGHT", row, "RIGHT", 10, perUnit and 10 or 3)
+    if not perUnit then frame:Hide(); return end
+    MoneyFrame_Update(row:GetName() .. "BuyoutFrameMoney", math.floor(buyout / count + 0.5))
+    local caption = region(row, "BuyoutFrameText")
+    local text = caption and caption:GetRegions()
+    if text and text.SetText then text:SetText(ns.T("browseUnitPrice")) end
+    frame:Show()
+end
+function W.BuyoutSort()
+    if type(SortAuctionClearSort) ~= "function" or type(SortAuctionSetSort) ~= "function" then return end
+    SortAuctionClearSort("list")
+    SortAuctionSetSort("list", "buyout", false)
+end
+function W.Order(count)
+    local entries = {}
+    for i = 1, count do
+        local _, _, stack, _, _, _, _, _, buyout = GetAuctionItemInfo("list", i)
+        entries[i] = {index = i, unit = buyout and buyout > 0 and stack and stack > 0 and buyout / stack or nil}
+    end
+    table.sort(entries, function(a, b)
+        if (a.unit == nil) ~= (b.unit == nil) then return a.unit ~= nil end
+        if a.unit and a.unit ~= b.unit then return a.unit < b.unit end
+        return a.index < b.index
+    end)
+    local order = {}
+    for i, entry in ipairs(entries) do order[i] = entry.index end
+    return order
+end
 local function paint(list, row, index, delta)
     local name, icon, count, quality, usable, level, minBid, increment, buyout, bid, high, owner, sold = GetAuctionItemInfo(list.kind, index)
     if not name or not count or not minBid or not increment or buyout == nil or bid == nil then row:Hide(); return end
@@ -55,6 +88,8 @@ local function paint(list, row, index, delta)
         if buyout > 0 then MoneyFrame_Update(row:GetName() .. "BuyoutFrameMoney", buyout); frame:Show()
         else frame:Hide() end
         if list.kind == "list" then
+            W.BuyoutFirst(row, count, buyout, amount)
+            if buyout == 0 then label:SetTextColor(0.5, 0.5, 0.5); texture:SetVertexColor(0.4, 0.4, 0.4) end
             if high then region(row, "YourBidText"):Show() else region(row, "YourBidText"):Hide() end
         else
             region(row, "MoneyFrameLabel"):Hide()
@@ -105,9 +140,13 @@ function W.Paint(list)
     list.scroll.offset = offset
     FauxScrollFrame_Update(list.scroll, count + (total > 50 and 1 or 0), visible, 37)
     local delta = W.frame:GetWidth() - 832
+    local order = list.kind == "list" and W.Order(count) or nil
     for i, row in ipairs(list.rows) do
-        if i <= visible and offset + i <= count then paint(list, row, offset + i, delta)
-        else row:Hide() end
+        if i <= visible and offset + i <= count then
+            local index = order and order[offset + i] or offset + i
+            row:SetID(index - offset)
+            paint(list, row, index, delta)
+        else row:SetID(i); row:Hide() end
     end
     local prefix = list.kind == "list" and "Browse" or (list.kind == "bidder" and "Bid" or "Auctions")
     local text = _G[prefix .. "SearchCountText"]
@@ -181,7 +220,7 @@ function W.Apply()
     W.native = foreign()
     local width = W.native and 832 or math.max(832, math.min(saved.width, W.maxWidth))
     local height = W.native and 447 or math.max(447, math.min(saved.height, W.maxHeight))
-    if W.native then W.grip:Hide(); W.reset:Hide() else W.grip:Show(); W.reset:Show() end
+    if W.native then W.grip:Hide() else W.grip:Show() end
     W.frame:SetWidth(width); W.frame:SetHeight(height)
     W.Layout()
 end
@@ -205,12 +244,11 @@ function W.Install(frame)
     W.grip = ns.TradeKit.ResizeGrip(frame, {832, 447, W.maxWidth, W.maxHeight}, function()
         if combat() then ns.say(ns.T("windowCombat")); return false end
         return not W.native
-    end, W.SetSize)
-    W.reset = ns.TradeKit.Button(frame, ns.T("windowDefault"), 62, function() W.SetSize(1040, 630) end)
-    W.reset:SetPoint("TOPLEFT", frame, "TOPLEFT", 75, -12)
-    ns.TradeKit.Tooltip(W.reset, ns.T("windowDefault"), ns.T("windowDefaultTip"))
+    end, W.SetSize, function() W.SetSize(1040, 630) end)
     W.driver = ns.NewFrame("Frame", nil, frame)
     hooksecurefunc("AuctionFrameTab_OnClick", W.Queue)
+    frame:HookScript("OnShow", W.BuyoutSort)
+    W.BuyoutSort()
     local panel = _G["Atr_Main_Panel"]
     if panel then panel:HookScript("OnShow", W.Queue); panel:HookScript("OnHide", W.Queue) end
     W.Apply()

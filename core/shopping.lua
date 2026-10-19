@@ -10,20 +10,40 @@ function Shop.Spent()
     return S.spent + (S.run and ns.Buy.state.spent or 0)
 end
 function Shop.Left()
+    if S.priceLimit then
+        return ns.Plan.Price(S.offers, S.priceLimit, math.huge).units
+    end
     return math.max(0, S.need - Shop.Got())
 end
 local function changed()
     if Shop.onChange then Shop.onChange() end
 end
 function Shop.Replan()
-    S.options = Shop.Left() > 0 and ns.Plan.Options(S.offers, Shop.Left()) or {}
+    if S.priceLimit then
+        local plan = ns.Plan.Price(S.offers, S.priceLimit, GetMoney())
+        S.options = plan.lots > 0 and {plan} or {}
+        S.need = Shop.Got() + plan.units
+    else S.options = Shop.Left() > 0 and ns.Plan.Options(S.offers, Shop.Left()) or {} end
     S.plan = S.options[1] and ns.Plan.Copy(S.options[1]) or nil
     changed()
 end
+function Shop.SetPriceLimit(copper)
+    if ns.Buy.Active() then return false end
+    if copper and (copper ~= copper or copper <= 0 or copper > 1000000000 or copper ~= math.floor(copper)) then return false end
+    if copper == S.priceLimit then return true end
+    if copper and not S.priceLimit then S.quantityNeed = S.need end
+    if not copper then S.need = S.quantityNeed or 1 end
+    S.priceLimit = copper
+    S.got, S.spent, S.run = 0, 0, false
+    Shop.Replan()
+    return true
+end
 function Shop.SetNeed(need)
     if ns.Buy.Active() then return end
+    local limited = S.priceLimit ~= nil
+    S.priceLimit = nil
     need = math.max(1, math.min(1000, math.floor(need or 1)))
-    if need == S.need then return end
+    if need == S.need and not limited then return end
     if Shop.Left() == 0 then S.got, S.spent, S.run = 0, 0, false end
     S.need = need
     Shop.Replan()
@@ -46,11 +66,14 @@ function Shop.Option(option)
 end
 function Shop.Adjust(offer, delta)
     if ns.Buy.Active() or not S.plan then return end
+    if S.priceLimit and (delta > 0 and offer.buyout >= S.priceLimit * offer.stack) then return end
     ns.Plan.Adjust(S.plan, offer, delta)
     changed()
 end
 function Shop.Reset()
     if ns.Buy.Active() then return end
+    if S.priceLimit then S.need = S.quantityNeed or 1 end
+    S.priceLimit = nil
     S.got, S.spent, S.run = 0, 0, false
     Shop.Replan()
 end
@@ -108,12 +131,96 @@ function Shop.Go()
     if ns.Buy.Active() then return ns.Buy.Confirm() end
     if not S.plan or S.plan.lots == 0 or Shop.Left() == 0 then return false end
     local got, spent = Shop.Got(), Shop.Spent()
-    if not ns.Buy.Start(S.name, S.plan, S.itemID) then return false end
+    local limit = S.plan.priceLimit
+    local guard
+    if limit then
+        guard = function(index)
+            local _, _, count, _, _, _, _, _, buyout = GetAuctionItemInfo("list", index)
+            return count and count > 0 and buyout and buyout > 0 and buyout < limit * count
+        end
+    end
+    if not ns.Buy.Start(S.name, S.plan, S.itemID, guard) then return false end
     S.got, S.spent, S.run = got, spent, true
     changed()
     return true
 end
+function Shop.Stats(offers)
+    local list, units, lots, total = {}, 0, 0, 0
+    for _, offer in ipairs(offers or {}) do
+        if offer.count > 0 and offer.stack > 0 and offer.buyout > 0 then
+            local amount = offer.stack * offer.count
+            list[#list + 1] = {offer.buyout / offer.stack, amount}
+            units, lots, total = units + amount, lots + offer.count, total + offer.buyout * offer.count
+        end
+    end
+    if units == 0 then return nil end
+    local copy = {}
+    for i, entry in ipairs(list) do copy[i] = {entry[1], entry[2]} end
+    local market = ns.Markets.MarketPrice(copy)
+    table.sort(list, function(a, b) return a[1] < b[1] end)
+    local half, seen, median = units / 2, 0, nil
+    for _, entry in ipairs(list) do
+        seen = seen + entry[2]
+        if seen >= half then median = entry[1]; break end
+    end
+    return {min = list[1][1], market = market, median = median, mean = total / units, units = units, lots = lots}
+end
+local lowerMap
+function Shop.Lower(text)
+    local lead, tail = string.char(0xD0), string.char(0xD1)
+    if not lowerMap then
+        lowerMap = {}
+        for byte = 0x90, 0x9F do lowerMap[lead .. string.char(byte)] = lead .. string.char(byte + 0x20) end
+        for byte = 0xA0, 0xAF do lowerMap[lead .. string.char(byte)] = tail .. string.char(byte - 0x20) end
+        local e = lead .. string.char(0xB5)
+        lowerMap[lead .. string.char(0x81)], lowerMap[tail .. string.char(0x91)] = e, e
+        lowerMap.pattern = "[" .. lead .. tail .. "][" .. string.char(0x80) .. "-" .. string.char(0xBF) .. "]"
+    end
+    return (text:lower():gsub(lowerMap.pattern, function(char) return lowerMap[char] end))
+end
+local names
+local namesVersion = -1
+local function index()
+    local version = ns.Store.itemsVersion or 0
+    if names and namesVersion == version then return names end
+    names, namesVersion = {}, version
+    local seen = {}
+    for id, stored in pairs(ns.Store.DB().items) do
+        local name, quality = stored:match("^([^\t]+)\t?(%d*)")
+        if name then
+            seen[id] = true
+            names[#names + 1] = {id = id, name = name, key = Shop.Lower(name), quality = tonumber(quality)}
+        end
+    end
+    for id in pairs(ns.Crafting and ns.Crafting.items or {}) do
+        local name = not seen[id] and ns.Compat.ItemInfo(id)
+        if name then names[#names + 1] = {id = id, name = name, key = Shop.Lower(name)} end
+    end
+    return names
+end
+function Shop.Suggest(text, limit)
+    local query = Shop.Lower((text or ""):match("^%s*(.-)%s*$"))
+    local continuation = "[" .. string.char(0x80) .. "-" .. string.char(0xBF) .. "]"
+    if #(query:gsub(continuation, "")) < 2 then return {} end
+    local ranked = {}
+    for _, entry in ipairs(index()) do
+        local at = entry.key:find(query, 1, true)
+        if at then
+            local rank = at == 1 and 1 or (entry.key:sub(at - 1, at - 1) == " " and 2 or 3)
+            ranked[#ranked + 1] = {entry = entry, rank = rank}
+        end
+    end
+    table.sort(ranked, function(a, b)
+        if a.rank ~= b.rank then return a.rank < b.rank end
+        if #a.entry.name ~= #b.entry.name then return #a.entry.name < #b.entry.name end
+        return a.entry.name < b.entry.name
+    end)
+    local out = {}
+    for i = 1, math.min(limit, #ranked) do out[i] = ranked[i].entry end
+    return out
+end
 ns.Buy.onChange = function()
     if ns.Buy.Active() then changed() else Shop.Replan() end
     if ns.Disenchant then ns.Disenchant.BuyChanged() end
+    if ns.Prospect then ns.Prospect.BuyChanged() end
 end

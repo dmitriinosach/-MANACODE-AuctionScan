@@ -195,6 +195,27 @@ function A.Buckets(board, count)
     end
     return buckets
 end
+function A.Candles(board, shift)
+    local byDay, order = {}, {}
+    for _, point in ipairs(board.points) do
+        if point.price then
+            local day = math.floor((point.at + shift) / 86400)
+            local candle = byDay[day]
+            if not candle then
+                candle = {day = day, at = day * 86400 - shift + 43200, open = point.price, close = point.price,
+                    high = point.p25 or point.price, low = point.price, points = 0}
+                byDay[day] = candle
+                order[#order + 1] = candle
+            end
+            candle.close = point.price
+            candle.high = math.max(candle.high, point.p25 or point.price, point.price)
+            candle.low = math.min(candle.low, point.price)
+            candle.points = candle.points + 1
+        end
+    end
+    table.sort(order, function(a, b) return a.day < b.day end)
+    return order
+end
 local function groups(observation)
     local result = {}
     for _, text in ipairs(observation.lots) do

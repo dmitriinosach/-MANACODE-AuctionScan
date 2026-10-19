@@ -1,5 +1,5 @@
 local _, ns = ...
-local B = {days = 7, all = {}}
+local B = {days = 7, mode = "line", all = {}}
 B.__index = B
 ns.MarketBoardUI = B
 local function money(value)
@@ -8,15 +8,20 @@ end
 local function count(value)
     return tostring(math.floor(value + 0.5))
 end
-local function tiles(board)
-    local C = ns.TradeKit.theme.chart
-    local last, first, quote = board.last, board.first, board.quote
-    local price = last and last.price or (quote and quote.price)
-    local change, tone
+local function direction(board)
+    local first, last = board.first, board.last
     if first and last and first ~= last and first.price > 0 then
         local delta = (last.price / first.price - 1) * 100
-        change, tone = ns.T("boardChange", delta, board.days), delta > 0.05 and "positive" or (delta < -0.05 and "negative" or nil)
+        return delta, delta > 0.05 and "positive" or (delta < -0.05 and "negative" or nil)
     end
+    return nil, nil
+end
+local function tiles(board)
+    local C = ns.TradeKit.theme.chart
+    local last, quote = board.last, board.quote
+    local price = last and last.price or (quote and quote.price)
+    local delta, tone = direction(board)
+    local change = delta and ns.T("boardChange", delta, board.days) or nil
     local supply, supplyNote = board.supply, ns.T("boardSupplyMissing")
     if supply and board.supplyFirst and board.supplyFirst ~= supply and (board.supplyFirst.units or 0) > 0 then
         supplyNote = ns.T("boardSupplyChange", supply.lots or 0, ((supply.units or 0) / board.supplyFirst.units - 1) * 100)
@@ -56,19 +61,21 @@ local function tip(bucket)
 end
 function B:New(parent)
     local K = ns.TradeKit
-    local view = setmetatable({tiles = {}, periods = {}}, self)
+    local view = setmetatable({tiles = {}}, self)
     local f = ns.NewFrame("Frame", nil, parent)
     view.frame = f
-    f:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, -74)
-    f:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -12, 8)
     f:SetFrameLevel(parent:GetFrameLevel() + 3); f:EnableMouse(true)
-    for i, days in ipairs({1, 7, 30}) do
-        local button = K.Button(f, ns.T("familyDays", days), 64, function() B.days = days; view:Render() end, "quiet")
-        button:SetPoint("TOPLEFT", f, "TOPLEFT", (i - 1) * 70, 0)
-        view.periods[days] = button
-    end
-    view.coverage = K.Label(f, "", 222, -5, 300); view.coverage:SetHeight(14)
-    view.coverage:SetTextColor(unpack(K.theme.secondary))
+    view.periods = K.Segment(f, {{key = 1, label = ns.T("familyDays", 1)}, {key = 7, label = ns.T("familyDays", 7)},
+        {key = 30, label = ns.T("familyDays", 30)}}, function(days) B.days = days; view:Render() end)
+    view.periods.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+    view.modes = K.Segment(f, {{key = "line", label = ns.T("boardLine")}, {key = "candles", label = ns.T("boardCandles")}},
+        function(mode) B.mode = mode; view:Render() end)
+    view.modes.frame:SetPoint("LEFT", view.periods.frame, "RIGHT", 10, 0)
+    K.Tooltip(view.modes.frame, ns.T("boardCandles"), ns.T("boardCandlesTip"))
+    view.coverage = K.Label(f, "", 0, -5, 300, "secondary"); view.coverage:SetHeight(12)
+    view.coverage:ClearAllPoints(); view.coverage:SetPoint("LEFT", view.modes.frame, "RIGHT", 12, 0)
+    view.ownNote = K.Label(f, "", 0, -94, 700)
+    view.ownNote:SetHeight(16)
     view.help = K.Button(f, ns.T("tradeInfo"), 24, function() end, "quiet")
     view.help:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
     K.Tooltip(view.help, ns.T("boardHelpTitle"), ns.T("boardHelp"))
@@ -77,12 +84,13 @@ function B:New(parent)
     end)
     view.refresh:SetPoint("RIGHT", view.help, "LEFT", -6, 0)
     K.Tooltip(view.refresh, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
+    view.coverage:SetPoint("RIGHT", view.refresh, "LEFT", -8, 0)
     for i = 1, 6 do view.tiles[i] = K.StatTile:New(f) end
     view.chart = K.TimeChart:New(f)
     view.chart.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -94)
     view.chart.frame:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 18)
-    view.status = K.Label(f, ns.T("tradeReadyShort"), 0, 0, 400)
-    view.status:ClearAllPoints(); view.status:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0); view.status:SetHeight(14)
+    view.status = K.Label(f, ns.T("tradeReadyShort"), 0, 0, 400, "secondary")
+    view.status:ClearAllPoints(); view.status:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0); view.status:SetHeight(12)
     f:SetScript("OnSizeChanged", function() if view.props then view:Layout() end end)
     B.all[#B.all + 1] = view
     return view
@@ -98,7 +106,6 @@ function B:Layout()
         view.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", (i - 1) * (tile + 8), -32)
         if view.props then view.props.width = tile; view:Render() end
     end
-    self.coverage:SetWidth(math.max(60, width - 222 - 130))
     self.status:SetWidth(width)
 end
 function B:Controls()
@@ -108,25 +115,64 @@ function B:Controls()
 end
 function B:Render()
     if not self.props then return end
-    local C = ns.TradeKit.theme.chart
+    local K = ns.TradeKit
+    local C = K.theme.chart
     local board = ns.Activity.Board(self.props.id, B.days)
-    for days, button in pairs(self.periods) do button:SetActive(days == B.days) end
+    local own = ns.Accounting and ns.Accounting.Levels(self.props.id)
+    local references, markers = {}, {}
+    if own and own.cost then
+        references = {{value = own.cost, color = C.supply}, {value = own.breakEven, color = C.quartile}}
+        self.ownNote:SetWidth(self.frame:GetWidth() or 700)
+        self.ownNote:SetText(ns.T("acChartSummary", K.Money(own.cost), K.Money(own.breakEven), own.count))
+        self.ownNote:Show()
+        K.Tooltip(self.help, ns.T("boardHelpTitle"), ns.T("boardHelp") .. "\n\n"
+            .. ns.T("acChartTip", own.count, K.Money(own.cost), K.Money(own.breakEven)))
+    else self.ownNote:Hide() end
+    for _, sale in ipairs(own and own.sales or {}) do
+        if sale.at >= board.to - B.days * 86400 and sale.at <= board.to then
+            markers[#markers + 1] = {at = sale.at, value = sale.price, count = sale.count, color = C.added}
+            board.from = math.min(board.from, sale.at)
+        end
+    end
+    if #markers > 0 and not (own and own.cost) then
+        self.ownNote:SetWidth(self.frame:GetWidth() or 700)
+        self.ownNote:SetText(ns.T("acChartSalesCount", #markers)); self.ownNote:Show()
+    end
+    self.chart.frame:ClearAllPoints()
+    self.chart.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, (#references > 0 or #markers > 0) and -116 or -94)
+    self.chart.frame:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", 0, 18)
+    self.periods:Select(B.days)
+    local candlesAllowed = B.days > 1
+    if candlesAllowed then self.modes.frame:Show() else self.modes.frame:Hide() end
+    local mode = candlesAllowed and B.mode or "line"
+    self.modes:Select(mode)
     for i, props in ipairs(tiles(board)) do self.tiles[i].props = props end
     self:Layout()
     local last = board.points[#board.points]
     self.coverage:SetText(ns.T("boardCoverage", #board.points, board.compared,
         last and ns.T("boardAge", math.max(0, math.floor((time() - last.at) / 60))) or ns.T("boardDash")))
-    self.chart:SetProps({from = board.from, to = board.to,
-        empty = board.count < 2 and ns.T("familyNeedHistory") or nil,
+    local delta, tone = direction(board)
+    local lineColor = K.theme[tone or "text"]
+    self.chart:SetProps({from = board.from, to = board.to, days = B.days, mode = mode,
+        candles = function() return ns.Activity.Candles(board, K.DayShift()) end,
+        empty = board.count < 2 and #references == 0 and #markers == 0 and ns.T("familyNeedHistory") or nil,
         buckets = function(n) return ns.Activity.Buckets(board, n) end, tip = tip,
+        markerTip = function(marker)
+            return ns.T("acChartSaleAt", date("%d.%m %H:%M", marker.at)),
+                ns.T("acChartSaleDetail", marker.count, money(marker.value))
+        end,
         tracks = {
-            {kind = "steps", weight = 5, title = ns.T("boardTrackPrice"), format = money,
+            {kind = "price", weight = 5, title = ns.T("boardTrackPrice"), format = money,
+                change = delta and ns.T("boardChange", delta, board.days) or nil, tone = tone,
+                last = board.last and board.last.price or nil,
+                references = references, markers = markers,
+                extraLegend = #markers > 0 and {{color = C.added, legend = ns.T("acChartSales")}} or nil,
                 median = board.median, medianLegend = ns.T("boardLegendMedian"),
                 series = {{field = "p25", color = C.quartile, legend = ns.T("boardLegendQuartile"), thick = 1},
-                    {field = "price", color = C.minimum, legend = ns.T("boardLegendMinimum"), area = true, dots = true}}},
+                    {field = "price", color = lineColor, legend = ns.T("boardLegendMinimum"), area = true, dots = true}}},
             {kind = "bars", weight = 2, title = ns.T("boardTrackSupply"), format = count,
                 series = {{field = "units", color = C.supply}}},
-            {kind = "flow", weight = 3, title = ns.T("boardTrackFlow"), format = count,
+            {kind = "flow", weight = 2, title = ns.T("boardTrackFlow"), format = count,
                 series = {{field = "addedUnits", color = C.added, legend = ns.T("boardLegendAdded")}},
                 down = {{field = "earlyUnits", color = C.early, legend = ns.T("boardLegendEarly")},
                     {field = "lateUnits", color = C.late, legend = ns.T("boardLegendLate")}}},
@@ -143,4 +189,41 @@ function B.Refresh()
     for _, view in ipairs(B.all) do
         if view.props and view.frame:IsVisible() then view:Render() end
     end
+end
+local W = {hosts = {}, names = {}}
+ns.MarketWindow = W
+function W.Build(host)
+    local K = ns.TradeKit
+    local modal = K.Modal(host, "ManaCodeMarketWindow" .. (#W.names + 1))
+    W.names[#W.names + 1] = modal
+    local window = modal.window
+    modal.item = K.ItemChoice(window, function() end)
+    modal.item:SetPoint("TOPLEFT", window, "TOPLEFT", 12, -8)
+    modal.item:SetWidth(420); modal.item.text:SetWidth(380)
+    modal.item.text:SetFontObject("GameFontNormal")
+    modal.caption = K.Label(window, ns.T("marketWindowTitle"), 0, 0, 200, "secondary")
+    modal.caption:SetHeight(12); modal.caption:ClearAllPoints()
+    modal.caption:SetPoint("LEFT", modal.item, "RIGHT", 10, 0)
+    modal.board = B:New(window)
+    modal.board.frame:SetPoint("TOPLEFT", window, "TOPLEFT", 12, -44)
+    modal.board.frame:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -12, 10)
+    W.hosts[host] = modal
+    return modal
+end
+function W.Open(id)
+    local trader = ns.Trader and ns.Trader.frame
+    local host = trader and trader:IsVisible() and trader or UIParent
+    if not host then return end
+    local modal = W.hosts[host] or W.Build(host)
+    W.frame, W.board = modal, modal.board
+    ns.TradeKit.SetItemChoice(modal.item, id, false)
+    modal:Show()
+    modal.board:SetProps({id = id})
+end
+function W.Close()
+    for _, modal in pairs(W.hosts) do modal:Hide() end
+end
+function W.IsOpen()
+    for _, modal in pairs(W.hosts) do if modal:IsShown() then return true end end
+    return false
 end

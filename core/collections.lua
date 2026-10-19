@@ -79,10 +79,10 @@ function C.Items(mode, eventKey)
     end
     return result
 end
-function C.Scan(mode, eventKey)
+function C.Scan(mode, eventKey, force)
     local ids = {}
     for _, item in ipairs(C.Items(mode, eventKey)) do ids[#ids + 1] = item.raw end
-    return ns.Batch.Complete(ids, true, true)
+    return ns.Batch.Complete(ids, force or false, true)
 end
 function C.OpenRecipe(id)
     local recipe, family = ns.Crafting.byItem[id], ns.gemByItem[id]

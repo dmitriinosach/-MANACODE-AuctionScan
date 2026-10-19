@@ -123,7 +123,133 @@ end
 function F.Recipe(id)
     local family = ns.gemByItem[id]
     if family and id == family.raw then return ns.T("familyRaw") end
+    local known = F.Known(id)
+    if known then return ns.T("familyKnown") end
+    return ns.T(known == false and "craftRecipeUnknown" or "familyUnknownRecipe")
+end
+function F.Groups()
+    local byKey, order = {}, {}
+    for _, family in ipairs(ns.gemFamilies) do
+        local expansion = family.expansion or "wrath"
+        local key = expansion .. family.quality
+        if not byKey[key] then
+            byKey[key] = {key = key, expansion = expansion, quality = family.quality, families = {}}
+            order[#order + 1] = byKey[key]
+        end
+        table.insert(byKey[key].families, family)
+    end
+    table.sort(order, function(a, b)
+        if a.expansion ~= b.expansion then return a.expansion == "wrath" end
+        return a.quality > b.quality
+    end)
+    return order
+end
+function F.Group(key)
+    for _, group in ipairs(F.Groups()) do if group.key == key then return group end end
+end
+function F.GroupMembers(key)
+    local ids, group = {}, key and F.Group(key)
+    for _, family in ipairs(group and group.families or {}) do
+        for _, id in ipairs(family.members) do ids[#ids + 1] = id end
+    end
+    return ids
+end
+function F.CompleteGroup(key, force)
+    local group = F.Group(key)
+    if not group then return false end
+    local classIndex = ns.Compat.AuctionFilter(group.families[1].raw)
+    local sources = {}
+    if classIndex then
+        local covered = {}
+        for _, family in ipairs(group.families) do
+            if not ns.Hidden.Is(family.raw) then
+                for _, id in ipairs(family.members) do covered[#covered + 1] = id end
+            end
+        end
+        sources[1] = {target = {scope = "gems", gemGroup = key, query = "", classIndex = classIndex,
+            minQuality = group.quality}, covered = covered}
+    else
+        for _, family in ipairs(group.families) do
+            if not ns.Hidden.Is(family.raw) then sources[#sources + 1] = {family = family.raw} end
+        end
+    end
+    return ns.Batch.Complete(sources, force, true)
+end
+function F.CompleteAll(expansions, force)
+    local sources = {}
+    for _, group in ipairs(F.Groups()) do
+        if expansions[group.expansion] and not ns.Hidden.IsGroup(group.key) then
+            for _, family in ipairs(group.families) do
+                if not ns.Hidden.Is(family.raw) then sources[#sources + 1] = {family = family.raw} end
+            end
+        end
+    end
+    return ns.Batch.Complete(sources, force, true)
+end
+function F.Change(id)
+    local item = ns.Markets.Item(id)
+    if not item then return nil end
+    local current, previous
+    for i = #item.order, 1, -1 do
+        local observation = item.observations[item.order[i]]
+        if observation and observation.price and observation.complete then
+            if not current then current = observation
+            elseif observation.at < current.at then previous = observation; break end
+        end
+    end
+    if current and previous and previous.price > 0 then return (current.price / previous.price - 1) * 100 end
+    return nil
+end
+function F.Known(id)
+    local family = ns.gemByItem[id]
     local spell = family and family.spells[id]
-    if spell and IsSpellKnown and IsSpellKnown(spell) then return ns.T("familyKnown") end
-    return ns.T("familyUnknownRecipe")
+    if not spell then return nil end
+    return ns.Recipes.Known(spell, ns.T("jewelrySection"))
+end
+function F.Learned(family)
+    local known, total = 0, 0
+    for _, id in ipairs(family.members) do
+        if id ~= family.raw then
+            total = total + 1
+            if F.Known(id) then known = known + 1 end
+        end
+    end
+    return known, total
+end
+function F.Margin(id, fee)
+    local family = ns.gemByItem[id]
+    if not family or id == family.raw then return nil end
+    local q, base = ns.Markets.Quote(id), ns.Markets.Quote(family.raw)
+    if base and base.price and q and q.price and base.miss == 0 and q.miss == 0 then
+        return q.price * (1 - fee) - base.price
+    end
+    return nil
+end
+function F.Best(family, fee)
+    local bestID, bestMargin
+    for _, id in ipairs(family.members) do
+        if id ~= family.raw and F.Known(id) ~= false and not ns.Hidden.Is(id) then
+            local margin = F.Margin(id, fee)
+            if margin and (not bestMargin or margin > bestMargin) then bestID, bestMargin = id, margin end
+        end
+    end
+    if not bestID then
+        for _, id in ipairs(family.members) do
+            if id ~= family.raw then
+                local margin = F.Margin(id, fee)
+                if margin and (not bestMargin or margin > bestMargin) then bestID, bestMargin = id, margin end
+            end
+        end
+    end
+    return bestID, bestMargin
+end
+function F.GroupAge(group)
+    local latest
+    for _, family in ipairs(group.families) do
+        for _, id in ipairs(family.members) do
+            local q = ns.Markets.Quote(id)
+            if q and q.at and not q.vendor then latest = math.max(latest or 0, q.at) end
+        end
+    end
+    return latest and math.max(0, time() - latest) or nil
 end

@@ -36,7 +36,7 @@ function UI:Render()
         local recipe = i <= visible and entries[offset + i]
         if recipe then
             local q = ns.Markets.Quote(recipe.raw)
-            row:SetProps({id = recipe.raw, quote = q, width = width, reserve = 70, active = recipe.raw == self.selected,
+            row:SetProps({id = recipe.raw, quote = q, width = width, reserve = 70, reveal = true, active = recipe.raw == self.selected,
                 detail = ns.T(ns.craftCatalogs[recipe.profession].labelKey) .. " | " .. ns.T(recipe.category),
                 hidden = true, hideable = true, noRefresh = true, hideLabel = ns.T("hiddenRestore")})
         else row.frame:Hide() end

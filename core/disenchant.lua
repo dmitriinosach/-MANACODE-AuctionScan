@@ -78,7 +78,8 @@ function D.Matches(group, band)
     end
     local kind = group.classIndex == 1 and "weapon" or "armor"
     return band.expansion == group.expansion and D.HasQuality(group, band.quality or 2)
-        and (band.kind == kind or band.kind == "any" or (group.classIndex == 2 and (band.quality or 2) == 2))
+        and (band.kind == kind or band.kind == "any" or (group.classIndex == 2 and (band.quality or 2) == 2)
+            or band.searchClasses and band.searchClasses[group.classIndex])
 end
 function D.Output(band, id)
     for _, output in ipairs(band and band.outputs or {}) do
@@ -167,10 +168,8 @@ function D.Candidate(id, link)
         return {band = override.band, level = level, skill = override.skill,
             classIndex = class == classes[1] and 1 or 2, required = required, quality = quality}
     end
-    if equip == "INVTYPE_SHIELD" or equip == "INVTYPE_HOLDABLE" then
-        if quality == 2 and not override then return false end
-        if override then kind = override.kind end
-    end
+    if quality == 2 and (equip == "INVTYPE_SHIELD" or equip == "INVTYPE_HOLDABLE") then kind = "weapon" end
+    if override then kind = override.kind end
     for _, band in ipairs(ns.disenchantBands) do
         if not band.exactOnly and (band.quality or 2) == quality and (band.kind == kind or band.kind == "any")
             and level >= band.minLevel and level <= band.maxLevel
@@ -205,6 +204,14 @@ function D.Spread(result, fee, cost)
     result.high = high * (1 - fee) - result.reserve - cost
     if cost > 0 then result.lowPercent, result.highPercent = result.low / cost * 100, result.high / cost * 100 end
 end
+function D.Deposit(itemID, amount, fee, selling)
+    local _, _, _, _, _, _, _, stack, _, _, vendor = ns.Compat.ItemInfo(itemID)
+    local rate = fee == 0.15 and 0.75 or 0.15
+    local value = selling.base and selling.base * amount * (selling.hours or 12) / 12
+        or (vendor and math.max(100, math.floor(vendor * amount * rate * (selling.hours or 12) / 12)))
+    if not value or not stack or stack < amount then return nil end
+    return value
+end
 function D.Estimate(band, cost, fee, fixedPrices, selling)
     local result = {cost = cost, outputs = {}, gross = 0, fresh = true, deposit = 0}
     for _, output in ipairs(band.outputs) do
@@ -214,13 +221,10 @@ function D.Estimate(band, cost, fee, fixedPrices, selling)
         result.outputs[#result.outputs + 1] = {id = output.itemID, quantity = quantity, price = price,
             chance = output.chance, minCount = output.minCount, maxCount = output.maxCount}
         if selling then
-            local _, _, _, _, _, _, _, stack, _, _, vendor = ns.Compat.ItemInfo(output.itemID)
             local deposit = 0
             for amount = output.minCount, output.maxCount do
-                local rate = fee == 0.15 and 0.75 or 0.15
-                local value = selling.base and selling.base * amount * (selling.hours or 12) / 12
-                    or (vendor and math.max(100, math.floor(vendor * amount * rate * (selling.hours or 12) / 12)))
-                if not value or not stack or stack < amount then deposit = nil; break end
+                local value = D.Deposit(output.itemID, amount, fee, selling)
+                if not value then deposit = nil; break end
                 deposit = deposit + value
             end
             if result.deposit and deposit then
@@ -273,7 +277,54 @@ function D.Progress(key)
     end
     return nil
 end
-function D.Rows(key, fee, selling, minItemLevel, minPercent, maxItemLevel, includeNoLevel)
+function D.TargetBands(key)
+    local group, list = D.Group(key), {}
+    if not group or not group.targetID then return list end
+    for _, band in ipairs(ns.disenchantBands) do
+        if D.Matches(group, band) then list[#list + 1] = band end
+    end
+    table.sort(list, function(a, b)
+        local weaponA, weaponB = a.kind == "weapon", b.kind == "weapon"
+        if weaponA ~= weaponB then return weaponB end
+        if (a.quality or 2) ~= (b.quality or 2) then return (a.quality or 2) < (b.quality or 2) end
+        return a.minLevel > b.minLevel
+    end)
+    return list
+end
+function D.MainOutput(band, targetID)
+    local output = targetID and D.Output(band, targetID)
+    if output then return output end
+    local best = band.outputs[1]
+    for _, candidate in ipairs(band.outputs) do if candidate.chance > best.chance then best = candidate end end
+    return best
+end
+function D.DefaultExcluded(key)
+    local excluded, groups, group = {}, {}, D.Group(key)
+    for _, band in ipairs(D.TargetBands(key)) do
+        if band.kind == "weapon" then excluded[band.key] = true
+        else
+            local family = band.kind .. (band.quality or 2)
+            groups[family] = groups[family] or {}
+            table.insert(groups[family], band)
+        end
+    end
+    for _, bands in pairs(groups) do
+        if #bands > 1 then
+            local low, high = bands[1], bands[1]
+            for _, band in ipairs(bands) do
+                if D.Average(band, group.targetID) < D.Average(low, group.targetID) then low = band end
+                if D.Average(band, group.targetID) > D.Average(high, group.targetID) then high = band end
+            end
+            if low ~= high then excluded[low.key] = true end
+        end
+    end
+    return excluded
+end
+function D.Average(band, targetID)
+    local output = D.MainOutput(band, targetID)
+    return output.chance * (output.minCount + output.maxCount) / 2
+end
+function D.Rows(key, fee, selling, minItemLevel, minPercent, maxItemLevel, includeNoLevel, excludedBands)
     local progress = D.Progress(key)
     local scan, entries = progress and progress.scan or D.Snapshot(key), {}
     for _, text in ipairs(scan and scan.lots or {}) do
@@ -281,6 +332,7 @@ function D.Rows(key, fee, selling, minItemLevel, minPercent, maxItemLevel, inclu
         local meta = lot and scan.disenchantItems[lot.item]
         local eligible = meta and D.Accepts(D.Group(key), meta) and D.WithinLevels(meta, minItemLevel, maxItemLevel)
             and (includeNoLevel ~= false or meta.required ~= 0)
+            and not (excludedBands and excludedBands[meta.band])
             and lot.count > 0 and lot.buyout > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player")
         if eligible and minPercent ~= nil then
             local estimate = D.Estimate(D.Band(meta.band), lot.buyout / lot.count, fee, nil, selling)
@@ -436,19 +488,22 @@ function D.PurchasePlan(key, options)
         if meta and (not options.itemID or lot.item == options.itemID) and D.Accepts(D.Group(key), meta)
             and D.WithinLevels(meta, options.minItemLevel, options.maxItemLevel)
             and (options.includeNoLevel ~= false or meta.required ~= 0)
+            and not (options.excludedBands and options.excludedBands[meta.band])
             and lot.buyout > 0 and lot.count > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player") then
             local e = D.Estimate(D.Band(meta.band), lot.buyout / lot.count, options.fee, nil, options.selling)
             if e.percent ~= nil and not e.fresh then stale = stale + 1 end
-            if not e.percent then rejected.unknown = rejected.unknown + 1
-            elseif not options.itemID and e.percent <= options.percent then rejected.threshold = rejected.threshold + 1
+            if options.priceLimit and lot.buyout >= options.priceLimit * lot.count then rejected.threshold = rejected.threshold + 1
+            elseif not options.priceLimit and not e.percent then rejected.unknown = rejected.unknown + 1
+            elseif not options.priceLimit and not options.itemID and e.percent <= options.percent then rejected.threshold = rejected.threshold + 1
             else
                 lots[#lots + 1] = {lot = lot, percent = e.percent,
+                    priority = options.priceLimit and -lot.buyout / lot.count or e.percent,
                     classIndex = meta.classIndex, key = ns.Lot.Key(lot.item, lot.suffix, lot.count, lot.buyout, lot.owner)}
             end
         end
     end
     table.sort(lots, function(a, b)
-        if a.percent ~= b.percent then return a.percent > b.percent end
+        if a.priority ~= b.priority then return a.priority > b.priority end
         return a.lot.buyout < b.lot.buyout
     end)
     local result, byID, money = {items = {}, count = 0, cost = 0, map = {},
@@ -471,7 +526,7 @@ function D.PurchasePlan(key, options)
             local saved = result.map[entry.key]
             if not saved then
                 local offer = {key = entry.key, item = lot.item, suffix = lot.suffix, owner = lot.owner,
-                    classIndex = entry.classIndex, percent = entry.percent,
+                    classIndex = entry.classIndex, percent = entry.percent, priority = entry.priority,
                     stack = lot.count, buyout = lot.buyout, count = 0, page = 0}
                 saved = {offer = offer, lots = 0}
                 result.map[entry.key] = saved
@@ -502,8 +557,10 @@ local function startPurchase()
         local meta = id and D.Candidate(id, GetAuctionItemLink("list", index))
         if not meta or not D.WithinLevels(meta, options.minItemLevel, options.maxItemLevel)
             or options.includeNoLevel == false and meta.required == 0
+            or options.excludedBands and options.excludedBands[meta.band]
             or not D.Accepts(group, meta) or not count or count <= 0
             or not buyout or buyout <= 0 or not owner or owner == "" or owner == UnitName("player") then return false end
+        if options.priceLimit then return buyout < options.priceLimit * count end
         local estimate = D.Estimate(D.Band(meta.band), buyout / count, options.fee, nil, options.selling)
         return estimate.percent ~= nil and (options.itemID ~= nil or estimate.percent > options.percent)
     end
@@ -532,9 +589,14 @@ function D.Purchase(key, options)
     if #plan.items == 0 then ns.say(ns.T("deBuyEmpty")); return false end
     local group, scan = D.Group(key), D.Snapshot(key)
     local frozen = {fee = options.fee, percent = options.percent, minItemLevel = options.minItemLevel,
-        maxItemLevel = options.maxItemLevel, includeNoLevel = options.includeNoLevel, itemID = options.itemID}
+        maxItemLevel = options.maxItemLevel, includeNoLevel = options.includeNoLevel, itemID = options.itemID,
+        priceLimit = options.priceLimit}
     if options.selling then
         frozen.selling = {hours = options.selling.hours, losses = options.selling.losses, base = options.selling.base}
+    end
+    if options.excludedBands then
+        frozen.excludedBands = {}
+        for band, off in pairs(options.excludedBands) do frozen.excludedBands[band] = off end
     end
     D.purchase = {key = key, options = frozen, plan = plan,
         filter = {scope = "disenchant", deGroup = key, deTarget = group.targetID,
@@ -555,7 +617,7 @@ function D.Purchase(key, options)
                 minLevel = scan.deRanges and scan.deRanges[class] and scan.deRanges[class].minLevel or low,
                 maxLevel = scan.deRanges and scan.deRanges[class] and scan.deRanges[class].maxLevel or high,
                 maxPages = math.max(1, scan.deRoutePages and scan.deRoutePages[class] or D.purchase.filter.maxPages), score = -math.huge}
-            routes[class].score = math.max(routes[class].score, pick.offer.percent)
+            routes[class].score = math.max(routes[class].score, pick.offer.priority or pick.offer.percent)
         end
         D.purchase.filter.routes = {}
         for _, route in pairs(routes) do table.insert(D.purchase.filter.routes, route) end
@@ -571,5 +633,5 @@ function D.BuyChanged()
             D.purchase = nil
         end
     end
-    if ns.Trader and ns.Trader.section == "disenchant" and ns.Trader.frame then ns.Trader.Refresh() end
+    if ns.Trader and ns.Trader.ViewActive("disenchant") and ns.Trader.frame then ns.Trader.Refresh() end
 end

@@ -57,10 +57,10 @@ local function plan(sources, mode, skipUnknown)
     for _, source in ipairs(sources) do
         local family = type(source) == "table" and ns.gemByRaw[source.family]
         if family then
-            local reused = 0
-            for _, id in ipairs(family.members) do if have(id) then reused = reused + 1 end end
+            local stale = 0
+            for _, id in ipairs(family.members) do if not seen[id] and not have(id) then stale = stale + 1 end end
             local name = ns.Compat.ItemInfo(family.raw)
-            if reused == 0 and name then
+            if stale >= 2 and name then
                 local covered = {}
                 for _, id in ipairs(family.members) do
                     if not seen[id] then covered[#covered + 1] = id; seen[id] = true end
@@ -100,7 +100,10 @@ function B.Complete(sources, force, skipUnknown)
 end
 function B.AllSources()
     local sources = {}
-    for _, family in ipairs(ns.gemFamilies) do sources[#sources + 1] = {family = family.raw} end
+    local shown = ns.FamilyUI and ns.FamilyUI.expansions or {wrath = true}
+    for _, family in ipairs(ns.gemFamilies) do
+        if shown[family.expansion or "wrath"] and not ns.Hidden.Is(family.raw) then sources[#sources + 1] = {family = family.raw} end
+    end
     for _, key in ipairs(ns.Crafting.order) do
         local catalog = ns.craftCatalogs[key]
         if catalog then
@@ -123,7 +126,7 @@ end
 function B.Accept(scan)
     local job = B.job
     if not job or job.scanID ~= scan.id then return end
-    if (scan.miss or 0) > 0 then B.Cancel(); return end
+    if (scan.miss or 0) > 0 then job.failed = (job.failed or 0) + 1 end
     job.index = job.index + 1
     nextItem()
 end

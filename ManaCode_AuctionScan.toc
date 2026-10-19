@@ -4,7 +4,7 @@
 ## Notes: Full auction house scan saved for outside analysis.
 ## Notes-ruRU: Полный скан аукциона для анализа вне игры
 ## Author: Manacode
-## Version: 0.6.0
+## Version: 0.7.0
 ## SavedVariables: AuctionScanDB
 
 compat\wotlk.lua
@@ -16,6 +16,11 @@ locale\tailoring_ru.lua
 locale\blacksmithing_ru.lua
 locale\vendor_recipes_ru.lua
 locale\leveling_ru.lua
+locale\accounting_ru.lua
+locale\shell_ru.lua
+locale\materials_ru.lua
+locale\prospect_ru.lua
+locale\bargain_ru.lua
 
 core\lot.lua
 core\store.lua
@@ -33,20 +38,31 @@ data\disenchanting.lua
 data\seasonal.lua
 data\shared.lua
 data\leveling_enchanting.lua
+data\recycling.lua
+data\prospecting.lua
+data\milling.lua
 core\markets.lua
 core\shared.lua
 core\activity.lua
 core\family.lua
+core\recipes.lua
 core\shopping.lua
 core\batch.lua
 core\alchemy.lua
 core\reagents.lua
+core\recycle.lua
 core\resale.lua
 core\craft_plan.lua
 core\disenchant.lua
+core\prospect.lua
 core\collections.lua
 core\hidden.lua
 core\leveling.lua
+core\accounting.lua
+core\disenchant_log.lua
+core\accounting_events.lua
+core\posting.lua
+core\bargain.lua
 
 ui\button.lua
 ui\kit.lua
@@ -58,9 +74,14 @@ ui\shopping.lua
 ui\family.lua
 ui\alchemy.lua
 ui\reagents.lua
+ui\recycle.lua
 ui\resale.lua
 ui\disenchant.lua
+ui\prospect.lua
 ui\collections.lua
 ui\hidden.lua
 ui\leveling.lua
+ui\accounting.lua
+ui\bargain.lua
 ui\trader.lua
+ui\tooltip.lua

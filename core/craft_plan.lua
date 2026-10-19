@@ -7,9 +7,12 @@ local function sum(left, right)
 end
 function P.Build(recipe, options)
     local stock, path, rows = {}, {[recipe.raw] = true}, {}
+    local quantity = math.max(1, math.min(100000, math.floor(options.quantity or recipe.count)))
+    local crafts = math.ceil(quantity / recipe.count)
     local function material(id, quantity, depth)
         local quote = ns.Crafting.Quote(id)
-        local price = quote and quote.miss == 0 and quote.price or nil
+        local price = quote and quote.miss == 0 and quote.complete ~= false
+            and (not quote.at or quote.at <= time()) and quote.price or nil
         local child = ns.Crafting.byItem[id]
         local make = options.make and options.make[id]
         if make == nil then make = options.craftAll end
@@ -45,14 +48,32 @@ function P.Build(recipe, options)
         end
         return node
     end
-    local result = {rows = rows, cost = 0, cash = 0, count = recipe.count}
+    local result = {rows = rows, cost = 0, cash = 0, count = recipe.count * crafts,
+        requested = quantity, crafts = crafts, extra = recipe.count * crafts - quantity,
+        missing = 0, stale = 0, short = 0, needs = {}}
     for _, input in ipairs(recipe.inputs) do
-        local node = material(input[1], input[2], 0)
+        local node = material(input[1], input[2] * crafts, 0)
         result.cost, result.cash = sum(result.cost, node.value), sum(result.cash, node.cash)
     end
+    local quotes = {}
+    for _, node in ipairs(rows) do
+        if not node.excluded then
+            if not node.crafted then result.needs[node.id] = (result.needs[node.id] or 0) + node.need end
+            if not node.crafted or node.own > 0 then quotes[node.id] = node.quote or false end
+        end
+    end
+    for id, quote in pairs(quotes) do
+        if not quote or not quote.price or quote.miss ~= 0 or quote.complete == false or quote.at and quote.at > time() then
+            result.missing = result.missing + 1
+        elseif not quote.vendor and not quote.manual then
+            if not ns.Markets.Fresh(id) then result.stale = result.stale + 1 end
+            if (result.needs[id] or 0) > (quote.units or 0) then result.short = result.short + 1 end
+        end
+    end
+    result.unitCost = result.cost and result.cost / result.count
     local output = ns.Markets.Quote(recipe.raw)
-    if output and output.price and output.miss == 0 then
-        result.revenue = output.price * recipe.count * (1 - (options.fee or 0.05))
+    if output and output.price and output.miss == 0 and output.complete ~= false and (not output.at or output.at <= time()) then
+        result.revenue = output.price * result.count * (1 - (options.fee or 0.05))
         if result.cost then result.margin = result.revenue - result.cost end
     end
     return result

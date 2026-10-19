@@ -52,6 +52,7 @@ function Store.Item(id, name, quality)
     local items = Store.DB().items
     if not items[id] and name then
         items[id] = name .. "\t" .. tostring(quality or 0)
+        Store.itemsVersion = (Store.itemsVersion or 0) + 1
     end
 end
 function Store.Log(text)

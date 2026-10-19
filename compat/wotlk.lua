@@ -10,6 +10,12 @@ function C.SpellIcon(id)
     local name, _, icon = GetSpellInfo(id)
     return name, icon
 end
+function C.BagSlots(bag)
+    if GetContainerNumSlots then return GetContainerNumSlots(bag) end
+end
+function C.BagItemIcon(bag, slot)
+    if GetContainerItemInfo then return GetContainerItemInfo(bag, slot) end
+end
 function C.AuctionFilter(id)
     if not id or not GetAuctionItemClasses or not GetAuctionItemSubClasses then return nil, nil end
     local _, _, _, _, _, className, subName = C.ItemInfo(id)
@@ -30,4 +36,7 @@ end
 function ns.Listen(frame, event)
     frame:RegisterEvent(event)
     return true
+end
+function ns.Gradient(texture, orient, r1, g1, b1, a1, r2, g2, b2, a2)
+    texture:SetGradientAlpha(orient, r1, g1, b1, a1, r2, g2, b2, a2)
 end

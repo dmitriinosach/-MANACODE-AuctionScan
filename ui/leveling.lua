@@ -3,7 +3,6 @@ local UI = {props = {first = 1, target = 450, tool = 0, reserve = 0, choices = {
     rows = {}, expanded = nil, stepsOpen = {}, mode = "materials"}
 ns.LevelingUI = UI
 function UI:SetProps(props)
-    ns.Batch.Stop()
     for key, value in pairs(props) do self.props[key] = value end
     self.props = ns.Leveling.Options(self.props)
     self.signature = nil
@@ -47,8 +46,6 @@ function UI:Controls()
     local phase = ns.Scan.state.phase
     if phase == "idle" and not ns.Buy.Active() then self.scan:Enable(); self.all:Enable()
     else self.scan:Disable(); self.all:Disable() end
-    if phase == "paused" then self.resume:Show() else self.resume:Hide() end
-    if phase == "idle" then self.stop:Hide() else self.stop:Show() end
 end
 function UI:Action(entry, button)
     local p = self.props
@@ -184,12 +181,15 @@ function UI:New(parent)
     K.Label(f, ns.T("levelTo"), 87, -10, 24)
     self.target = K.Edit(f, 42); self.target:SetPoint("TOPLEFT", f, "TOPLEFT", 112, -4)
     self.first:SetNumeric(true); self.target:SetNumeric(true); self.first:SetMaxLetters(3); self.target:SetMaxLetters(3)
-    local function apply()
+    local function read()
         local first, target, reserve = tonumber(self.first:GetText()), tonumber(self.target:GetText()), tonumber(self.reserve:GetText())
-        self.first:ClearFocus(); self.target:ClearFocus(); self.reserve:ClearFocus()
         self:SetProps({first = first or self.props.first, target = target or self.props.target, reserve = reserve or 0})
     end
-    self.first:SetScript("OnEnterPressed", apply); self.target:SetScript("OnEnterPressed", apply)
+    local function apply()
+        self.first:ClearFocus(); self.target:ClearFocus(); self.reserve:ClearFocus()
+        read()
+    end
+    K.LiveEdit(self.first, read, 0.8); K.LiveEdit(self.target, read, 0.8)
     self.apply = K.Button(f, ns.T("levelApply"), 84, apply)
     self.apply:SetPoint("TOPLEFT", f, "TOPLEFT", 162, -4)
     self.scan = K.Button(f, ns.T("levelScanRoute"), 166, function() ns.Leveling.Complete(self.props, false, K.ScanMode()); self:Controls() end, "main")
@@ -205,7 +205,7 @@ function UI:New(parent)
     self.materials:SetPoint("LEFT", self.steps, "RIGHT", 6, 0)
     K.Label(f, ns.T("levelReserve"), 220, -40, 50)
     self.reserve = K.Edit(f, 32); self.reserve:SetPoint("TOPLEFT", f, "TOPLEFT", 273, -34)
-    self.reserve:SetMaxLetters(2); self.reserve:SetNumeric(true); self.reserve:SetScript("OnEnterPressed", apply)
+    self.reserve:SetMaxLetters(2); self.reserve:SetNumeric(true); K.LiveEdit(self.reserve, read)
     K.Tooltip(self.reserve, ns.T("levelReserve"), ns.T("levelReserveTip"))
     self.owned = K.Check(f, function(checked) self:SetProps({owned = checked}) end)
     self.owned:SetPoint("TOPLEFT", f, "TOPLEFT", 316, -36)
@@ -229,12 +229,6 @@ function UI:New(parent)
         row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -148 - (i - 1) * 38)
         self.rows[i] = row; self.scroll:Wheel(row.frame)
     end
-    self.status = K.Label(f, ns.T("tradeReadyShort"), 10, 0, 500)
-    self.status:ClearAllPoints(); self.status:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 6)
-    self.stop = K.Button(f, ns.T("tradeStop"), 70, function() ns.Batch.Stop(); ns.Scan.Stop(); self:Controls() end)
-    self.stop:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -10, 4)
-    self.resume = K.Button(f, ns.T("tradeResume"), 92, function() ns.Scan.Start("pages"); self:Controls() end)
-    self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
     f:SetScript("OnSizeChanged", function() self:Render() end)
     self:Render()
     return self

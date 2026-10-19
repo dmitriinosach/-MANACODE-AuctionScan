@@ -10,9 +10,15 @@ function H.Is(id)
     return saved()[id] == true
 end
 function H.Set(id, hidden)
-    if not ns.Crafting.byItem[id] then return false end
+    if not ns.Crafting.byItem[id] and not (ns.gemByItem and ns.gemByItem[id]) then return false end
     saved()[id] = hidden or nil
     return true
+end
+function H.IsGroup(key)
+    return saved()["group:" .. key] == true
+end
+function H.SetGroup(key, hidden)
+    saved()["group:" .. key] = hidden or nil
 end
 function H.Toggle(id)
     return H.Set(id, not H.Is(id))

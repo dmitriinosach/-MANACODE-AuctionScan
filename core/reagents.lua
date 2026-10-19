@@ -77,3 +77,57 @@ function R.Packs(id, fee)
     for _, use in ipairs(R.Uses(id, fee)) do add(use.count, use.recipe) end
     return result
 end
+local function market(id)
+    local q = ns.Markets.Quote(id)
+    if q and q.price and not q.vendor and (q.miss or 0) == 0 and q.complete ~= false then return q.price end
+end
+function R.BagItems(fee)
+    local rows, project = {}, ns.Accounting.Project()
+    for id, entry in pairs(ns.Posting.Bags()) do
+        local q = ns.Markets.Quote(id)
+        if (q and q.price and not q.vendor) or ns.Markets.Catalog(id) then
+            local price = market(id)
+            local cost = ns.Posting.Cost(id, 0, project)
+            local m = project.materials[id]
+            rows[#rows + 1] = {id = id, count = entry.count, cost = cost, market = price,
+                net = price and price * (1 - fee), value = price and math.floor(price * entry.count * (1 - fee)),
+                posted = m and m.posted or 0, complete = price ~= nil}
+        end
+    end
+    table.sort(rows, function(a, b)
+        local left, right = ns.Markets.Name(a.id), ns.Markets.Name(b.id)
+        if left ~= right then return left < right end
+        return a.id < b.id
+    end)
+    return rows
+end
+function R.PairFor(id)
+    for _, pair in ipairs(ns.recyclePairs or {}) do
+        if pair.small == id or pair.big == id then return pair end
+    end
+end
+function R.Options(id, fee)
+    local price = market(id)
+    local sell = price and price * (1 - fee)
+    local options = {{key = "sell", value = sell, best = false}}
+    local craft = {key = "craft", best = false}
+    for _, use in ipairs(R.Uses(id, fee)) do
+        if use.gain and sell then craft.value, craft.recipe, craft.count = sell + use.gain, use.recipe, use.count; break end
+    end
+    options[2] = craft
+    local recycle = {key = "recycle", best = false}
+    local pair = R.PairFor(id)
+    if pair then
+        recycle.pair = pair
+        local small, big = market(pair.small), market(pair.big)
+        if id == pair.big and pair.both and small then recycle.value = pair.ratio * small * (1 - fee)
+        elseif id == pair.small and big then recycle.value = big * (1 - fee) / pair.ratio end
+    end
+    options[3] = recycle
+    local best
+    for _, option in ipairs(options) do
+        if option.value and (not best or option.value > best.value * 1.02) then best = option end
+    end
+    if best then best.best = true end
+    return options
+end

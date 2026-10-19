@@ -1,5 +1,5 @@
 local _, ns = ...
-local M = { freshSeconds = 600 }
+local M = {}
 ns.Markets = M
 local indexed = setmetatable({}, { __mode = "k" })
 local rebuilding = false
@@ -12,27 +12,51 @@ function M.Name(id)
     local fallback = ns.T("item" .. id)
     return fallback:sub(1, 1) == "[" and ns.T("familyItemID", id) or fallback
 end
+function M.MarketPrice(offers)
+    table.sort(offers, function(a, b) return a[1] < b[1] end)
+    local total = 0
+    for _, offer in ipairs(offers) do total = total + offer[2] end
+    if total == 0 then return nil end
+    local floor, ceiling = math.max(1, total * 0.15), math.max(1, total * 0.30)
+    local units, sum, previous = 0, 0, nil
+    for _, offer in ipairs(offers) do
+        if units >= floor and (units >= ceiling or (previous and offer[1] > previous * 1.2)) then break end
+        local take = math.min(offer[2], math.max(1, math.ceil(ceiling - units)))
+        units, sum, previous = units + take, sum + offer[1] * take, offer[1]
+    end
+    return units > 0 and sum / units or nil
+end
 local function index(scan)
     if indexed[scan] then return indexed[scan] end
-    local quotes = {}
+    local quotes, offers, me = {}, {}, UnitName and UnitName("player") or nil
     for _, text in ipairs(scan.lots) do
         local lot = ns.Lot.Decode(text)
         if lot then
             local q = quotes[lot.item] or { lots = 0, units = 0, at = scan.t + scan.secs, miss = scan.miss or 0 }
-            if lot.count > 0 and lot.buyout > 0 then
+            if lot.count > 0 and lot.buyout > 0 and (not me or lot.owner ~= me) then
                 local price = lot.buyout / lot.count
                 q.price = q.price and math.min(q.price, price) or price
                 q.lots, q.units = q.lots + 1, q.units + lot.count
+                offers[lot.item] = offers[lot.item] or {}
+                table.insert(offers[lot.item], {price, lot.count})
             end
             quotes[lot.item] = q
         end
     end
+    for id, list in pairs(offers) do quotes[id].market = M.MarketPrice(list) end
     if scan.itemID and not quotes[scan.itemID] then
         quotes[scan.itemID] = { lots = 0, units = 0, at = scan.t + scan.secs, miss = scan.miss or 0 }
     end
     local family = ns.gemByRaw and ns.gemByRaw[scan.family]
     if family then
         for _, id in ipairs(family.members) do
+            if not quotes[id] then
+                quotes[id] = {lots = 0, units = 0, at = scan.t + scan.secs, miss = scan.miss or 0}
+            end
+        end
+    end
+    if scan.scope == "gems" and ns.Family then
+        for _, id in ipairs(ns.Family.GroupMembers(scan.gemGroup)) do
             if not quotes[id] then
                 quotes[id] = {lots = 0, units = 0, at = scan.t + scan.secs, miss = scan.miss or 0}
             end
@@ -54,13 +78,17 @@ local function index(scan)
     end
     return quotes
 end
+M.schema = 2
 local function cache()
     local db = ns.Store.DB()
+    if not rebuilding and db.priceSchema ~= M.schema then db.marketCache = nil end
     if not db.marketCache then
         db.marketCache = {}
         rebuilding = true
         for _, scan in ipairs(db.scans) do M.Remember(scan) end
         rebuilding = false
+        db.priceSchema = M.schema
+        M.Trim()
     end
     if not rebuilding and db.gemFamilyRevision ~= 1 and ns.gemByRaw then
         for _, market in pairs(db.marketCache) do
@@ -80,25 +108,48 @@ end
 local function marketKey(realm, faction)
     return realm .. "|" .. faction
 end
+function M.Catalog(id)
+    if (ns.gemByItem and ns.gemByItem[id]) or (ns.Crafting and ns.Crafting.items and ns.Crafting.items[id])
+        or (ns.Resale and ns.Resale.byItem and ns.Resale.byItem[id]) then return true end
+    if not M.materials then
+        M.materials = {}
+        for _, material in ipairs(ns.disenchantMaterials or {}) do M.materials[material] = true end
+        for _, pair in ipairs(ns.recyclePairs or {}) do M.materials[pair.small], M.materials[pair.big] = true, true end
+        for _, list in ipairs({ns.prospectItems or {}, ns.millItems or {}}) do
+            for _, material in ipairs(list) do M.materials[material] = true end
+        end
+    end
+    return M.materials[id] == true
+end
+function M.TTL(id)
+    if ns.Resale and ns.Resale.byItem and ns.Resale.byItem[id] then return 21600 end
+    if ns.gemByItem and ns.gemByItem[id] then return 2700 end
+    local crafting = ns.Crafting
+    if crafting and crafting.byItem and crafting.byItem[id] and not (crafting.inputs and crafting.inputs[id]) then
+        return 7200
+    end
+    return 1800
+end
 function M.Trim()
     local markets, observations, marketList = cache(), {}, {}
     for key, market in pairs(markets) do
-        local items = {}
+        local catalog, other = {}, {}
         marketList[#marketList + 1] = {key = key, at = market.at}
         for id, item in pairs(market.items) do
             if item.quote.at < time() - 30 * 86400 then
                 market.items[id] = nil
             else
-                items[#items + 1] = {id = id, at = item.quote.at,
-                    priority = (ns.gemByItem and ns.gemByItem[id]) or (ns.Crafting and ns.Crafting.items[id])}
+                item.catalog = M.Catalog(id) or nil
+                table.insert(item.catalog and catalog or other, {id = id, at = item.quote.at})
             end
         end
-        table.sort(items, function(a, b)
-            if a.at ~= b.at then return a.at > b.at end
-            if not not a.priority ~= not not b.priority then return not not a.priority end
-            return a.id < b.id
-        end)
-        for i = 2049, #items do market.items[items[i].id] = nil end
+        for _, list in ipairs({{catalog, 2048}, {other, 1024}}) do
+            table.sort(list[1], function(a, b)
+                if a.at ~= b.at then return a.at > b.at end
+                return a.id < b.id
+            end)
+            for i = list[2] + 1, #list[1] do market.items[list[1][i].id] = nil end
+        end
     end
     table.sort(marketList, function(a, b) return a.at > b.at end)
     for i = 5, #marketList do markets[marketList[i].key] = nil end
@@ -106,11 +157,15 @@ function M.Trim()
         for _, item in pairs(market.items) do
             for _, scanID in ipairs(item.order) do
                 local observation = item.observations[scanID]
-                observations[#observations + 1] = {item = item, id = scanID, at = observation.at, count = #observation.lots}
+                observations[#observations + 1] = {item = item, id = scanID, at = observation.at,
+                    count = #observation.lots, catalog = item.catalog}
             end
         end
     end
-    table.sort(observations, function(a, b) return a.at > b.at end)
+    table.sort(observations, function(a, b)
+        if not a.catalog ~= not b.catalog then return a.catalog == true end
+        return a.at > b.at
+    end)
     local lots = 0
     for _, entry in ipairs(observations) do
         lots = lots + entry.count
@@ -139,7 +194,8 @@ function M.Remember(scan)
     end
     local at = scan.t + scan.secs
     market.at = math.max(market.at, at)
-    local full = scan.scope ~= "disenchant" and not scan.itemID and not scan.family and (not scan.query or scan.query == "")
+    local full = scan.scope ~= "disenchant" and scan.scope ~= "gems" and not scan.itemID and not scan.family
+        and (not scan.query or scan.query == "")
         and (scan.miss or 0) == 0 and scan.complete ~= false
         and not (scan.mode == "all" and (scan.expect or 0) > scan.total)
     if full and (not market.full or market.full.at <= at) then
@@ -157,13 +213,19 @@ function M.Remember(scan)
         if not (ns.vendorPrices and ns.vendorPrices[id]) then
             local item = market.items[id] or {observations = {}, order = {}}
             market.items[id] = item
-            if not item.quote or item.quote.at <= q.at then item.quote = q end
+            local current = item.quote
+            if q.complete then
+                if not current or not current.complete or current.at <= q.at then item.quote = q end
+            else
+                if not item.partial or item.partial.at <= q.at then item.partial = q end
+                if not current or (not current.complete and current.at <= q.at) then item.quote = q end
+            end
             if not item.observations[scan.id] then item.order[#item.order + 1] = scan.id end
             item.observations[scan.id] = {at = q.at, since = q.since, complete = q.complete,
                 price = q.price, units = q.units, lots = lots[id] or {}, scope = q.scope,
                 truncated = #(lots[id] or {}) < (counts[id] or 0)}
             item.observations[scan.id].scanID, item.observations[scan.id].count = scan.id, q.lots
-            if ns.Activity then ns.Activity.Record(id, item.observations[scan.id], scan.realm, scan.faction, item) end
+            if ns.Activity and not rebuilding then ns.Activity.Record(id, item.observations[scan.id], scan.realm, scan.faction, item) end
             local rank = {}
             for i, scanID in ipairs(item.order) do rank[scanID] = i end
             table.sort(item.order, function(a, b)
@@ -173,7 +235,19 @@ function M.Remember(scan)
             while #item.order > 5 do item.observations[table.remove(item.order, 1)] = nil end
         end
     end
-    M.Trim()
+    if not rebuilding then M.FeedAuctionator(quotes, scan); M.Trim() end
+end
+function M.FeedAuctionator(quotes, scan)
+    if type(gAtr_ScanDB) ~= "table" then return 0 end
+    if scan.realm ~= (GetRealmName() or "") or scan.faction ~= (UnitFactionGroup("player") or "") then return 0 end
+    local stored, written = ns.Store.DB().items, 0
+    for id, q in pairs(quotes) do
+        if q.complete and q.price and (q.units or 0) > 0 then
+            local name = ns.Compat.ItemInfo(id) or (stored[id] and stored[id]:match("^[^	]+"))
+            if name then gAtr_ScanDB[name] = math.floor(q.price + 0.5); written = written + 1 end
+        end
+    end
+    return written
 end
 function M.Item(id)
     local key = marketKey(GetRealmName() or "", UnitFactionGroup("player") or "")
@@ -197,8 +271,13 @@ function M.Fresh(id, seconds)
     local q = M.Quote(id)
     if not q or not q.complete or (q.miss or 0) > 0 then return false end
     if q.vendor then return true end
-    local age = time() - (q.since or q.at)
-    return age >= 0 and age < (seconds or M.freshSeconds)
+    local age = time() - (q.at or q.since or 0)
+    return age >= 0 and age < (seconds or M.TTL(id))
+end
+function M.Age(id)
+    local q = M.Quote(id)
+    if not q or q.vendor or not q.at then return nil end
+    return math.max(0, time() - q.at)
 end
 function M.Offers(id, scanID)
     local item = M.Item(id)

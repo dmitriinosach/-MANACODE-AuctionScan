@@ -16,6 +16,8 @@ local R = {
 }
 Buy.state = R
 Buy.onChange = nil
+local BID_KEYS = {sayBuyDone = "sayBidDone", sayBuyShort = "sayBidShort", sayBuyStopped = "sayBidStopped",
+    sayBuyForeign = "sayBidForeign"}
 local sending = false
 local hooked = false
 local function changed()
@@ -53,7 +55,7 @@ local function stop(key, ...)
     if R.filter then ns.Disenchant.RestoreSort(R.filter) end
     R.stopKey = key
     R.phase, R.matches = "idle", {}
-    ns.say(ns.T(key, ...))
+    ns.say(ns.T(R.bidding and BID_KEYS[key] or key, ...))
     changed()
 end
 local function finish(delay)
@@ -130,15 +132,18 @@ local function readPage()
         R.rereads, R.readAt = R.rereads + 1, GetTime() + SETTLE
         return
     end
-    if R.lookup then
+    if R.lookup or R.plan.priceLimit then
         table.sort(found, function(a, b)
-            if a.offer.percent ~= b.offer.percent then return a.offer.percent > b.offer.percent end
+            local left = a.offer.priority or a.offer.percent or -a.offer.buyout / a.offer.stack
+            local right = b.offer.priority or b.offer.percent or -b.offer.buyout / b.offer.stack
+            if left ~= right then return left > right end
             return a.offer.buyout < b.offer.buyout
         end)
         local affordable = {}
         for _, entry in ipairs(found) do
-            if entry.offer.buyout <= money then
-                affordable[#affordable + 1] = entry; money = money - entry.offer.buyout
+            local price = entry.offer.bid or entry.offer.buyout
+            if price <= money then
+                affordable[#affordable + 1] = entry; money = money - price
             end
         end
         found = affordable
@@ -177,6 +182,7 @@ function Buy.Start(name, plan, itemID, guard, category)
     R.name, R.plan, R.want, R.itemID = name, ns.Plan.Copy(plan), {}, itemID
     R.guard, R.stopKey = guard, nil
     R.filter, R.lookup = category and category.filter, category and category.lookup
+    R.bidding = category and category.bid or false
     local start
     for _, p in ipairs(R.plan.picks) do
         if p.lots > 0 then
@@ -225,19 +231,23 @@ function Buy.Confirm()
     for index = 1, #R.matches do
         local m = R.matches[R.lookup and (#R.matches - index + 1) or index]
         local o = m.offer
+        local amount = o.bid or o.buyout
         if (R.want[o] or 0) > 0 and stillThere(m, me) then
-            if money < o.buyout then
+            if money < amount then
                 poor = true
             else
-                PlaceAuctionBid("list", m.index, o.buyout)
+                local observer = ns.AccountingEvents
+                local before = observer and observer.last
+                PlaceAuctionBid("list", m.index, amount)
+                local request = observer and observer.last ~= before and observer.last or nil
                 if R.filter then
                     ns.Store.Log("buy group=" .. tostring(R.filter.deGroup) .. " target=" .. tostring(R.filter.deTarget)
                         .. " item=" .. tostring(o.item) .. " suffix=" .. tostring(o.suffix) .. " price=" .. o.buyout)
                 end
-                money = money - o.buyout
+                money = money - amount
                 R.want[o] = R.want[o] - 1
-                R.bought, R.spent = R.bought + o.stack, R.spent + o.buyout
-                R.pending[#R.pending + 1] = { offer = o, expires = now + PENDING }
+                R.bought, R.spent = R.bought + o.stack, R.spent + amount
+                R.pending[#R.pending + 1] = { offer = o, expires = now + PENDING, request = request }
                 per[o] = (per[o] or 0) + 1
                 bids = bids + 1
             end
@@ -274,7 +284,7 @@ end
 function Buy.Offer()
     if R.phase ~= "ready" then return 0, 0 end
     local c = 0
-    for _, m in ipairs(R.matches) do c = c + m.offer.buyout end
+    for _, m in ipairs(R.matches) do c = c + (m.offer.bid or m.offer.buyout) end
     return #R.matches, c
 end
 function Buy.Stop()
@@ -286,41 +296,36 @@ function Buy.OnListUpdate()
     if R.phase ~= "wait" and R.phase ~= "ready" then return end
     R.phase, R.readAt, R.rereads = "settle", GetTime() + SETTLE, 0
 end
-local refusals
-local function isRefusal(text)
-    if not refusals then
-        refusals = {}
-        local keys = { ERR_ITEM_NOT_FOUND, ERR_AUCTION_HIGHER_BID, ERR_NOT_ENOUGH_MONEY, ERR_AUCTION_BID_OWN,
-                       ERR_AUCTION_DATABASE_ERROR }
-        for i = 1, 5 do
-            if keys[i] then refusals[keys[i]] = true end
+local function refund(p)
+    p.offer.count = p.offer.count + 1
+    R.bought, R.spent, R.refused = R.bought - p.offer.stack, R.spent - (p.offer.bid or p.offer.buyout), R.refused + 1
+    if Buy.Active() then
+        R.want[p.offer] = (R.want[p.offer] or 0) + 1
+        if R.phase == "finish" then
+            R.page, R.pass, R.phase, R.nextAt = R.startPage, 1, "send", GetTime() + AFTER_BUY
         end
     end
-    return refusals[text] == true
+    changed()
 end
-local function takePending()
-    local now = GetTime()
-    while R.pending[1] do
-        local p = table.remove(R.pending, 1)
-        if now <= p.expires then return p end
+function Buy.OnAnswer(request, won)
+    local index
+    for i, pending in ipairs(R.pending) do
+        if request and pending.request == request then index = i; break end
     end
-    return nil
+    if not index then return end
+    local p = table.remove(R.pending, index)
+    if not won and GetTime() <= p.expires then refund(p) end
 end
 function Buy.OnError(text)
     if not text then return end
     local active = Buy.Active()
-    if isRefusal(text) then
-        local p = takePending()
-        if p then
-            p.offer.count = p.offer.count + 1
-            R.bought, R.spent, R.refused = R.bought - p.offer.stack, R.spent - p.offer.buyout, R.refused + 1
-            if Buy.Active() then
-                R.want[p.offer] = (R.want[p.offer] or 0) + 1
-                if R.phase == "finish" then
-                    R.page, R.pass, R.phase, R.nextAt = R.startPage, 1, "send", GetTime() + AFTER_BUY
-                end
+    if ns.AccountingEvents and ns.AccountingEvents.Refusal(text) then
+        local now = GetTime()
+        for i, pending in ipairs(R.pending) do
+            if not pending.request and now <= pending.expires then
+                refund(table.remove(R.pending, i))
+                break
             end
-            changed()
         end
     end
     if active and text == ERR_AUCTION_DATABASE_ERROR then

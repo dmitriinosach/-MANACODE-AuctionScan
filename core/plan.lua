@@ -52,6 +52,26 @@ function Plan.Available(offers)
     for _, o in ipairs(offers) do n = n + o.stack * o.count end
     return n
 end
+function Plan.Price(offers, limit, money)
+    local sorted, plan = {}, {kind = "price", need = 0, picks = {}, priceLimit = limit}
+    for _, offer in ipairs(offers) do
+        if offer.stack > 0 and offer.buyout > 0 and offer.buyout < limit * offer.stack and offer.count > 0 then
+            sorted[#sorted + 1] = offer
+        end
+    end
+    table.sort(sorted, function(a, b)
+        if a.buyout * b.stack ~= b.buyout * a.stack then return a.buyout * b.stack < b.buyout * a.stack end
+        return a.buyout < b.buyout
+    end)
+    for _, offer in ipairs(sorted) do
+        local count = math.min(offer.count, math.floor(money / offer.buyout))
+        if count > 0 then
+            plan.picks[#plan.picks + 1] = {offer = offer, lots = count}
+            plan.need, money = plan.need + count * offer.stack, money - count * offer.buyout
+        end
+    end
+    return Plan.Recount(plan)
+end
 function Plan.Prune(offers, need)
     local sorted = {}
     for i, o in ipairs(offers) do sorted[i] = o end
@@ -100,7 +120,7 @@ end
 function Plan.Copy(plan)
     local picks = {}
     for i, p in ipairs(plan.picks) do picks[i] = { offer = p.offer, lots = p.lots } end
-    return Plan.Recount({ kind = plan.kind, need = plan.need, picks = picks })
+    return Plan.Recount({ kind = plan.kind, need = plan.need, picks = picks, priceLimit = plan.priceLimit })
 end
 function Plan.Adjust(plan, offer, delta)
     local pick

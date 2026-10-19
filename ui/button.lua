@@ -1,46 +1,17 @@
 local ADDON, ns = ...
 local UI = {}
 ns.UI = UI
-local button
-local label
+local built = false
 function UI.SetEmbedded(active)
-    if not label then return end
-    if active then label:Hide() else label:Show() end
 end
 local function build()
-    if button or not AuctionFrame then return end
-    button = ns.NewFrame("Button", nil, AuctionFrame, "UIPanelButtonTemplate")
-    button:SetWidth(90)
-    button:SetHeight(22)
-    button:SetPoint("TOPRIGHT", AuctionFrame, "TOPRIGHT", -30, -12)
-    button:SetText(ns.T("btnScan"))
-    button:RegisterForClicks("LeftButtonUp")
-    button:SetScript("OnClick", function()
-        if IsControlKeyDown() then
-            ns.Scan.Stop()
-        else
-            ns.Scan.Start(IsShiftKeyDown() and "all" or "pages")
-        end
-    end)
-    button:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-        GameTooltip:AddLine(ns.T("tipTitle"))
-        GameTooltip:AddLine(ns.T("tipPages"), 1, 1, 1, true)
-        GameTooltip:AddLine(ns.T("tipAll"), 1, 1, 1, true)
-        GameTooltip:AddLine(ns.T("tipStop"), 1, 1, 1, true)
-        GameTooltip:AddLine(ns.T("tipReload"), 0.6, 0.8, 1, true)
-        GameTooltip:Show()
-    end)
-    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    if built or not AuctionFrame then return end
+    built = true
     AuctionFrame:HookScript("OnHide", function()
         if ns.Scan.state.phase ~= "idle" then ns.Scan.Trace("AuctionFrame hidden") end
     end)
-    label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    label:SetPoint("RIGHT", button, "LEFT", -6, 0)
-    label:SetText("")
 end
 function UI.Status(text)
-    if label then label:SetText(text) end
     if ns.Trader then ns.Trader.Status(text) end
 end
 ns.Scan.onStatus = UI.Status
@@ -97,6 +68,8 @@ SlashCmdList.MCAUCSCAN = function(msg)
     elseif cmd == "pace" then
         if (msg or ""):lower():match("^%s*pace%s+reset%s*$") then ns.Scan.ResetPace()
         else ns.say(ns.T("sayPace", ns.Query.Gap())) end
+    elseif cmd == "ledger" then
+        if ns.AccountingUI then ns.AccountingUI.Open() else ns.say(ns.T("tradeRestartRequired")) end
     else
         ns.Scan.Start("pages")
     end

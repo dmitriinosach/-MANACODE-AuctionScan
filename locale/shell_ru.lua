@@ -1,0 +1,15 @@
+local _, ns = ...
+local L = ns.locales.ruRU
+L.navProcessing = "Переработка"
+L.navMaterials = "Материалы"
+L.navBelowMarket = "Ниже рынка"
+L.procDisenchant = "Распыл"
+L.procProspect = "Просеивание"
+L.procMill = "Измельчение"
+L.procRecycle = "Субстанции и стихии"
+L.procLater = "Появится позже."
+L.modeCraft = "Крафт"
+L.modeLeveling = "Прокачка"
+L.modeNpc = "Рецепты у NPC"
+L.modeNoLeveling = "Для этой профессии каталога прокачки пока нет."
+L.bargainStub = "Рынок в работе"

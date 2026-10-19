@@ -3,7 +3,6 @@ local UI = {props = {profession = "alchemy", page = 1, fee = 0.05}, rows = {}}
 ns.ResaleUI = UI
 function UI:SetProps(props)
     if props.profession and props.profession ~= self.props.profession then
-        ns.Batch.Stop()
         self.props.id = nil
         if self.scroll then self.scroll.offset = 0 end
     end
@@ -17,8 +16,7 @@ function UI:Controls()
     if ready then self.scan:Enable() else self.scan:Disable() end
     if ready and self.props.id then self.update:Enable(); self.buy:Enable()
     else self.update:Disable(); self.buy:Disable() end
-    if idle then self.stop:Hide(); self.update:Show() else self.stop:Show(); self.update:Hide() end
-    if ns.Scan.state.phase == "paused" then self.resume:Show() else self.resume:Hide() end
+    if idle then self.update:Show() else self.update:Hide() end
 end
 function UI:Render()
     if not self.frame then return end
@@ -77,10 +75,9 @@ function UI:New(parent)
     self.frame = ns.NewFrame("Frame", nil, parent)
     local f = self.frame
     f:SetAllPoints(parent)
-    self.mode = K.ProfessionModes(f, function() return self.props.profession end, "resale")
-    K.Label(f, ns.T("vendorResaleRecipes"), 118, -11, 236, "heading")
+    K.Label(f, ns.T("vendorResaleRecipes"), 12, -11, 236, "heading")
     self.scan = K.Button(f, ns.T("cacheComplete"), 140, function()
-        ns.Resale.Complete(self.props.profession, IsShiftKeyDown()); self:Render()
+        ns.Resale.Complete(self.props.profession, ns.TradeKit.ScanMode()); self:Render()
     end, "main")
     self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -282, -5)
     K.Tooltip(self.scan, ns.T("cacheComplete"), ns.T("vendorResaleScanTip"))
@@ -103,9 +100,6 @@ function UI:New(parent)
     end
     self.empty = K.Label(f, "", 10, -66, 370)
     self.empty:SetHeight(60); self.empty:SetJustifyV("TOP")
-    self.status = K.Label(f, ns.T("tradeReadyShort"), 0, 0, 200)
-    self.status:ClearAllPoints(); self.status:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 32)
-    self.status:SetHeight(14)
     self.fee = K.Button(f, "", 106, function() self:SetProps({fee = self.props.fee == 0.05 and 0.15 or 0.05}) end)
     self.fee:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 4)
     self.buy = K.Button(f, ns.T("vendorResaleAuction"), 92, function() ns.Trader.OpenBuy(self.props.id) end)
@@ -113,13 +107,6 @@ function UI:New(parent)
     self.update = K.Button(f, ns.T("tradeUpdate"), 84, function() ns.Markets.Scan(self.props.id) end)
     self.update:SetPoint("RIGHT", self.buy, "LEFT", -6, 0)
     K.Tooltip(self.update, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
-    self.stop = K.Button(f, ns.T("tradeStop"), 60, function() ns.Batch.Stop(); ns.Scan.Stop(); self:Controls() end)
-    self.stop:SetPoint("RIGHT", self.buy, "LEFT", -6, 0)
-    self.resume = K.Button(f, ns.T("tradeResume"), 92, function()
-        if ns.Scan.state.phase == "paused" then ns.Scan.Start("pages") end
-        self:Controls()
-    end)
-    self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
     self.inspector = K.Inspector:New(f)
     local panel = self.inspector.body
     self.selection = self.inspector.item

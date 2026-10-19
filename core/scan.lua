@@ -66,7 +66,8 @@ local function signature(count)
     local uniform = count > 0
     for i = 1, count do
         local _, _, n, _, _, _, minBid, _, buyout, bid, _, owner = GetAuctionItemInfo("list", i)
-        parts[i] = tostring(GetAuctionItemLink("list", i)) .. ":" .. tostring(n) .. ":" .. tostring(minBid)
+        local link = GetAuctionItemLink("list", i)
+        parts[i] = tostring(link) .. ":" .. tostring(n) .. ":" .. tostring(minBid)
             .. ":" .. tostring(buyout) .. ":" .. tostring(bid) .. ":" .. tostring(owner)
         if i > 1 and parts[i] ~= parts[i - 1] then uniform = false end
     end
@@ -284,6 +285,10 @@ function Scan.Start(mode, target)
         S.scan.family = target.family
         S.scan.classIndex, S.scan.subClassIndex = ns.Compat.AuctionFilter(target.itemID or target.family)
         if target.family then S.scan.scope = "family" end
+        if target.scope == "gems" then
+            S.scan.scope, S.scan.gemGroup, S.scan.query = "gems", target.gemGroup, ""
+            S.scan.classIndex, S.scan.subClassIndex, S.scan.minQuality = target.classIndex, nil, target.minQuality
+        end
         if target.scope == "disenchant" then
             S.scan.scope, S.scan.deGroup, S.scan.disenchantItems = "disenchant", target.deGroup, {}
             S.scan.classIndex, S.scan.minLevel, S.scan.maxLevel, S.scan.minQuality = target.classIndex,

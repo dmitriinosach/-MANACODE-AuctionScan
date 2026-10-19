@@ -1,11 +1,10 @@
 local _, ns = ...
 local UI = {props = {profession = "alchemy", recipe = 46376, id = 46376, fee = 0.05, page = 1, view = "list"},
-    rows = {}, make = {}, ignore = {}, open = {}}
+    rows = {}, groups = {}, collapsed = {}, make = {}, ignore = {}, open = {}}
 ns.AlchemyUI = UI
 function UI:SetProps(props)
     local view = props.view or (props.recipe and "recipe")
     if props.profession and props.profession ~= self.props.profession then
-        ns.Batch.Stop()
         self.props.profession = props.profession
         local catalog = ns.craftCatalogs[props.profession]
         local first = (ns.Hidden.Filter(catalog.recipes, false)[1] or catalog.recipes[1]).raw
@@ -13,14 +12,15 @@ function UI:SetProps(props)
         self.showHidden = false
         self.make, self.ignore, self.props.craftAll = {}, {}, false
         self.open = {}
+        self.props.quantity = nil
         if self.scroll then self.scroll.offset = 0 end
         view = view or "list"
     end
     if props.recipe and props.recipe ~= self.props.recipe then
-        ns.Batch.Stop()
         self.props.id = props.recipe
         if self.scroll then self.scroll.offset = 0 end
         self.make, self.ignore, self.props.craftAll = {}, {}, false
+        self.props.quantity = nil
     end
     if view and view ~= self.props.view then
         if self.scroll then self.scroll.offset = 0 end
@@ -29,6 +29,23 @@ function UI:SetProps(props)
     for key, value in pairs(props) do self.props[key] = value end
     self.props.view = view or self.props.view
     self:Render()
+end
+function UI:SaveQuantity()
+    self.editingQuantity = false
+    local text = self.quantity:GetText()
+    local quantity = tonumber(text)
+    if not quantity or quantity < 1 or quantity > 100000 or quantity ~= math.floor(quantity) then
+        ns.say(ns.T("craftQuantityInvalid")); self:Render(); return
+    end
+    self:SetProps({quantity = quantity})
+end
+function UI:BuyMaterial()
+    local id = self.props.id
+    local need = self.plan and self.plan.needs[id]
+    if id ~= self.props.recipe and (not need or need <= 0) then
+        ns.say(ns.T("craftNoPurchase")); return
+    end
+    ns.Trader.OpenBuy(id, need)
 end
 function UI:Select(id, row)
     if row and row.hidden then return end
@@ -56,20 +73,19 @@ end
 function UI:Controls()
     if not self.frame then return end
     local phase, list = ns.Scan.state.phase, self.props.view == "list"
-    if phase == "idle" then
-        self.stop:Hide()
-        if list or ns.vendorPrices[self.props.id] then self.update:Hide() else self.update:Show() end
-    else self.stop:Show(); self.update:Hide() end
+    if phase == "idle" and not (list or ns.vendorPrices[self.props.id]) then self.update:Show() else self.update:Hide() end
     if list then self.buy:Hide() else self.buy:Show() end
-    if ns.vendorPrices[self.props.id] then self.buy:Disable() else self.buy:Enable() end
-    if phase == "paused" then self.resume:Show() else self.resume:Hide() end
+    local need = self.plan and self.plan.needs[self.props.id]
+    if ns.vendorPrices[self.props.id] or not list and self.props.id ~= self.props.recipe and (not need or need <= 0) then
+        self.buy:Disable()
+    else self.buy:Enable() end
     if phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
 end
 function UI:ScanSources()
     local p = self.props
     if p.view == "list" then return ns.Crafting.ProfessionSources(p.profession) end
     return ns.Crafting.RecipeSources(ns.craftCatalogs[p.profession].byItem[p.recipe],
-        {make = self.make, ignore = self.ignore, craftAll = p.craftAll, owned = p.owned, fee = p.fee})
+        {make = self.make, ignore = self.ignore, craftAll = p.craftAll, owned = p.owned, fee = p.fee, quantity = p.quantity})
 end
 function UI:SavePrice()
     local price = tonumber((self.priceEdit:GetText():gsub(",", ".")))
@@ -96,8 +112,10 @@ function UI:Render()
         else label:Hide() end
     end
     self.headers.item:SetText(ns.T(list and "craftListRecipes" or "alchemyItem"))
+    self.headers.subtotal:SetText(ns.T(list and "alchemySubtotal" or "craftBatchSubtotal"))
+    self.headers.margin:SetText(ns.T(list and "craftMargin" or "craftBatchMargin"))
     self.sorter:Mark()
-    for _, frame in ipairs({self.picker.frame, self.back, self.materials}) do
+    for _, frame in ipairs({self.picker.frame, self.back, self.materials, self.quantity, self.quantityLabel, self.batchNote}) do
         if list then frame:Hide() else frame:Show() end
     end
     if list then self.listTitle:Show() else self.listTitle:Hide() end
@@ -113,6 +131,65 @@ function UI:Render()
     self.fee:SetText(ns.T("tradeFee", math.floor(p.fee * 100 + 0.5)))
     if list then self:RenderList(catalog, width) else self:RenderRecipe(catalog, width) end
     self:Controls()
+end
+function UI:ListEntries(ranked)
+    local p = self.props
+    local entries, categories, byCategory = {}, {}, {}
+    for _, entry in ipairs(ranked) do
+        local category = entry.recipe.category
+        local bucket = byCategory[category]
+        if not bucket then
+            bucket = {category = category, key = p.profession .. ":" .. category, entries = {}, priced = 0}
+            byCategory[category] = bucket
+            categories[#categories + 1] = bucket
+        end
+        bucket.entries[#bucket.entries + 1] = entry
+        if entry.plan.margin then
+            bucket.priced = bucket.priced + 1
+            bucket.best = math.max(bucket.best or entry.plan.margin, entry.plan.margin)
+        end
+    end
+    local hiddenGroups = {}
+    for _, bucket in ipairs(categories) do
+        if ns.Hidden.IsGroup(bucket.key) then hiddenGroups[#hiddenGroups + 1] = bucket
+        else
+            entries[#entries + 1] = {category = bucket}
+            if not self.collapsed[bucket.key] then
+                for _, entry in ipairs(bucket.entries) do
+                    entries[#entries + 1] = entry
+                    if self.open[entry.raw] then
+                        for _, node in ipairs(ns.CraftPlan.Build(entry.recipe, {make = self.open[entry.raw], fee = p.fee}).rows) do
+                            entries[#entries + 1] = {node = node, owner = entry.raw}
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local hidden = ns.Hidden.Recipes(p.profession)
+    if #hidden > 0 or #hiddenGroups > 0 then
+        entries[#entries + 1] = {spoiler = true, count = #hidden + #hiddenGroups}
+        if self.showHidden then
+            for _, bucket in ipairs(hiddenGroups) do entries[#entries + 1] = {category = bucket, hiddenGroup = true} end
+            for _, recipe in ipairs(hidden) do entries[#entries + 1] = {hiddenRecipe = recipe} end
+        end
+    end
+    return entries
+end
+function UI:CategoryProps(bucket, width, hiddenGroup)
+    local K = ns.TradeKit
+    local actions
+    if hiddenGroup then
+        actions = {{label = ns.T("hiddenRestore"), width = 64, tip = ns.T("hiddenRestoreTip"),
+            fn = function(key) ns.Hidden.SetGroup(key, false); self:Render() end}}
+    else
+        actions = {{label = ns.T("hiddenHide"), width = 64, tip = ns.T("hiddenHideTip"),
+            fn = function(key) ns.Hidden.SetGroup(key, true); self:Render() end}}
+    end
+    local detail = ns.T("craftCategoryDetail", #bucket.entries, bucket.priced, K.Money(bucket.best))
+    if hiddenGroup then detail = ns.T("craftHiddenGroup", detail) end
+    return {key = bucket.key, width = width, open = hiddenGroup or not self.collapsed[bucket.key], actionWidth = 70,
+        name = ns.T(bucket.category), detail = detail, tip = ns.T("craftCategoryTip"), actions = actions}
 end
 function UI:RenderList(catalog, width)
     local K, p = ns.TradeKit, self.props
@@ -131,70 +208,88 @@ function UI:RenderList(catalog, width)
             if entry.plan.margin > 0 then profitable = profitable + 1 end
         end
     end
-    local entries = {}
-    for _, entry in ipairs(ranked) do
-        entries[#entries + 1] = entry
-        if self.open[entry.raw] then
-            for _, node in ipairs(ns.CraftPlan.Build(entry.recipe, {make = self.open[entry.raw], fee = p.fee}).rows) do
-                entries[#entries + 1] = {node = node, owner = entry.raw}
-            end
-        end
-    end
-    local hidden = ns.Hidden.Recipes(p.profession)
-    if #hidden > 0 then
-        entries[#entries + 1] = {spoiler = true, count = #hidden}
-        if self.showHidden then
-            for _, recipe in ipairs(hidden) do entries[#entries + 1] = {hiddenRecipe = recipe} end
-        end
-    end
-    local visible = K.ListCapacity(self.frame, 56, 96, 29, #self.rows)
+    local entries = self:ListEntries(ranked)
+    local visible = K.ListCapacity(self.frame, 56, 96, 29, #self.rows + #self.groups)
     local offset = self.scroll:SetRange(#entries, visible)
     self.spoiler:Hide()
-    for i, row in ipairs(self.rows) do
-        local entry = i <= visible and entries[offset + i]
+    local usedRows, usedGroups = 0, 0
+    for i = 1, visible do
+        local entry = entries[offset + i]
+        local y = -56 - (i - 1) * 29
         if entry and entry.spoiler then
-            row.frame:Hide()
             self.spoiler:ClearAllPoints()
-            self.spoiler:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, -56 - (i - 1) * 29)
+            self.spoiler:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, y)
             self.spoiler:SetWidth(width); self.spoiler:SetHeight(26)
             self.spoiler:SetText(ns.T(self.showHidden and "hiddenSpoilerOpen" or "hiddenSpoilerClosed", entry.count))
             self.spoiler:Show()
-        elseif entry and entry.hiddenRecipe then
-            local recipe = entry.hiddenRecipe
-            row:SetProps({id = recipe.raw, active = false, width = width, reserve = self.reserve, depth = 0,
-                include = false, expandable = false, hidden = true, hideable = true, noRefresh = true,
-                hideLabel = ns.T("hiddenRestore"), detail = ns.T(recipe.category) .. ns.T("hiddenRowNote")})
-        elseif entry and entry.node then
-            local node = entry.node
-            local have = math.max(0, GetItemCount(node.id, true) or 0)
-            local q = ns.Alchemy.Quote(node.id)
-            local detail = ns.T(have >= node.count and "craftListInputEnough" or "craftListInput", node.count, have)
-            if q and q.vendor then detail = detail .. ns.T("cacheVendorRole")
-            elseif q and q.manual then detail = detail .. ns.T("alchemyOwnPrice") end
-            if node.crafted then detail = detail .. ns.T("craftSourceMake") end
-            if node.extra and node.extra > 0 then detail = detail .. ns.T("craftExtra", node.extra) end
-            K.Tooltip(row.expand, ns.T("craftListExpand"), ns.T("craftListExpandTip"))
-            row:SetProps({id = node.id, quote = q, active = false, width = width, depth = node.depth + 1, include = false,
-                expandable = node.expandable, crafted = node.crafted, owner = entry.owner, reserve = self.reserve,
-                detail = detail, extraTip = ns.T("craftListInputTip")})
+        elseif entry and entry.category then
+            usedGroups = usedGroups + 1
+            local header = self.groups[usedGroups]
+            if header then
+                header.frame:ClearAllPoints(); header.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, y)
+                header:SetProps(self:CategoryProps(entry.category, width, entry.hiddenGroup))
+            end
         elseif entry then
-            local q = ns.Markets.Quote(entry.raw)
-            local detail = ns.T("craftListDetail", ns.T(entry.recipe.category), entry.recipe.count, K.Money(entry.plan.cost))
-            if q then detail = detail .. ns.T("cacheAge", math.max(0, math.floor((time() - q.at) / 60))) end
-            local stock = ns.CraftPlan.Stock(entry.recipe)
-            if stock > 0 then detail = detail .. ns.T("craftListStock", stock) end
-            K.Tooltip(row.expand, ns.T("craftListExpand"), ns.T("craftListExpandTip"))
-            row:SetProps({id = entry.raw, quote = q, active = entry.raw == p.recipe, width = width,
-                margin = entry.plan.margin, detail = detail, depth = 0, include = false,
-                expandable = true, crafted = self.open[entry.raw] ~= nil, reserve = self.reserve, hideable = true})
-        else row.frame:Hide() end
+            usedRows = usedRows + 1
+            local row = self.rows[usedRows]
+            if row then
+                row.frame:ClearAllPoints(); row.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, y)
+                self:ListRow(row, entry, width)
+            end
+        end
     end
+    for i = usedRows + 1, #self.rows do self.rows[i].frame:Hide() end
+    for i = usedGroups + 1, #self.groups do self.groups[i].frame:Hide() end
     self.listTitle:SetText(ns.T("craftListTitle", ns.T(catalog.labelKey), #ranked))
-    self.inspector:Clear()
-    self.category:SetText(ns.T(catalog.labelKey))
-    self.summary:SetHeight(230); self.summary:SetText(ns.T("craftListSummary", #ranked, priced, profitable))
+    local recipe = catalog.byItem[p.recipe]
+    if recipe then
+        self.inspector:SetProps({id = p.recipe})
+        local known = ns.Recipes.Known(recipe.spell, ns.T(catalog.labelKey))
+        self.category:SetText(ns.T(recipe.category) .. (known ~= nil and (" | " .. ns.T(known and "craftRecipeKnown" or "craftRecipeUnknown")) or ""))
+        self.batch:SetProps({recipe = recipe, known = known,
+            options = {make = self.make, ignore = self.ignore, craftAll = p.craftAll, owned = p.owned, quantity = p.quantity, fee = p.fee},
+            change = function(key, value, id)
+                if key == "make" then self.make[id] = value; self:Render()
+                elseif key == "ignore" then self.ignore[id] = value or nil; self:Render()
+                else self:SetProps({[key] = value}) end
+            end,
+            buy = function(id, need) ns.Trader.OpenBuy(id, need) end})
+    else self.inspector:Clear(); self.category:SetText(ns.T(catalog.labelKey)); self.batch:SetProps({}) end
+    self.summary:SetText(""); self.summary:Hide()
     for _, frame in ipairs({self.priceEdit, self.save, self.reset, self.priceLabel, self.priceHint, self.reagent}) do
         frame:Hide()
+    end
+end
+function UI:ListRow(row, entry, width)
+    local K, p = ns.TradeKit, self.props
+    if entry.hiddenRecipe then
+        local recipe = entry.hiddenRecipe
+        row:SetProps({id = recipe.raw, active = false, width = width, reserve = self.reserve, depth = 0,
+            include = false, expandable = false, hidden = true, hideable = true, noRefresh = true,
+            hideLabel = ns.T("hiddenRestore"), detail = ns.T(recipe.category) .. ns.T("hiddenRowNote")})
+    elseif entry.node then
+        local node = entry.node
+        local have = math.max(0, GetItemCount(node.id, true) or 0)
+        local q = ns.Alchemy.Quote(node.id)
+        local detail = ns.T(have >= node.count and "craftListInputEnough" or "craftListInput", node.count, have)
+        if q and q.vendor then detail = detail .. ns.T("cacheVendorRole")
+        elseif q and q.manual then detail = detail .. ns.T("alchemyOwnPrice") end
+        if node.crafted then detail = detail .. ns.T("craftSourceMake") end
+        if node.extra and node.extra > 0 then detail = detail .. ns.T("craftExtra", node.extra) end
+        K.Tooltip(row.expand, ns.T("craftListExpand"), ns.T("craftListExpandTip"))
+        row:SetProps({id = node.id, quote = q, active = false, width = width, depth = node.depth + 1, include = false,
+            expandable = node.expandable, crafted = node.crafted, owner = entry.owner, reserve = self.reserve,
+            detail = detail, extraTip = ns.T("craftListInputTip"), reveal = true})
+    else
+        local q = ns.Markets.Quote(entry.raw)
+        local detail = ns.T("craftListDetail", ns.T(entry.recipe.category), entry.recipe.count, K.Money(entry.plan.cost))
+        if q then detail = detail .. ns.T("cacheAge", math.max(0, math.floor((time() - q.at) / 60))) end
+        local stock = ns.CraftPlan.Stock(entry.recipe)
+        if stock > 0 then detail = detail .. ns.T("craftListStock", stock) end
+        K.Tooltip(row.expand, ns.T("craftListExpand"), ns.T("craftListExpandTip"))
+        row:SetProps({id = entry.raw, quote = q, active = entry.raw == p.recipe, width = width,
+            margin = entry.plan.margin, detail = detail, depth = 0, include = false,
+            expandable = true, crafted = self.open[entry.raw] ~= nil, reserve = self.reserve, hideable = true, reveal = true})
     end
 end
 function UI:RenderRecipe(catalog, width)
@@ -202,10 +297,12 @@ function UI:RenderRecipe(catalog, width)
     local recipe = catalog.byItem[p.recipe]
     self.hideRecipe:SetText(ns.T("hiddenHide"))
     self.picker:SetProps({families = ns.Hidden.Filter(catalog.recipes, false), raw = p.recipe, headingKey = catalog.labelKey})
-    local plan = ns.CraftPlan.Build(recipe, {make = self.make, ignore = self.ignore, craftAll = p.craftAll, owned = p.owned, fee = p.fee})
+    local plan = ns.CraftPlan.Build(recipe, {make = self.make, ignore = self.ignore, craftAll = p.craftAll,
+        owned = p.owned, fee = p.fee, quantity = p.quantity})
     self.plan = plan
-    local entries = {{id = recipe.raw, count = recipe.count, output = true}}
-    local visible = K.ListCapacity(self.frame, 56, 96, 29, #self.rows)
+    if not self.editingQuantity then self.quantity:SetText(tostring(plan.requested)) end
+    local entries = {{id = recipe.raw, count = plan.count, output = true}}
+    local visible = K.ListCapacity(self.frame, 56, 112, 29, #self.rows)
     local offset = self.scroll:SetRange(#plan.rows, math.max(1, visible - 1))
     for i = offset + 1, math.min(offset + visible - 1, #plan.rows) do
         entries[#entries + 1] = plan.rows[i]
@@ -216,6 +313,7 @@ function UI:RenderRecipe(catalog, width)
             local q = entry.output and ns.Markets.Quote(entry.id) or ns.Alchemy.Quote(entry.id)
             local subtotal = entry.output and plan.revenue or entry.value
             local role = ns.T(entry.output and "alchemyOutput" or "alchemyInput", entry.count)
+            if entry.output and plan.extra > 0 then role = role .. ns.T("craftExtra", plan.extra) end
             if q and q.vendor then role = role .. ns.T("cacheVendorRole")
             elseif q and q.manual then role = role .. ns.T("alchemyOwnPrice")
             elseif q then role = role .. ns.T("cacheAge", math.max(0, math.floor((time() - q.at) / 60))) end
@@ -231,14 +329,26 @@ function UI:RenderRecipe(catalog, width)
         else row.frame:Hide() end
     end
     self.inspector:SetProps({id = p.id})
-    local known = IsSpellKnown and IsSpellKnown(recipe.spell)
-    self.category:SetText(ns.T(recipe.category) .. " | " .. ns.T(known and "familyKnown" or "familyUnknownRecipe"))
+    self.batch:SetProps({})
+    self.summary:Show()
+    local known = ns.Recipes.Known(recipe.spell, catalog and ns.T(catalog.labelKey))
+    self.category:SetText(ns.T(recipe.category) .. " | " .. ns.T(known and "familyKnown"
+        or (known == false and "craftRecipeUnknown" or "familyUnknownRecipe")))
     if recipe.cooldown then self.category:SetText(self.category:GetText() .. ns.T("craftCooldown")) end
-    local buy = ns.CraftPlan.Build(recipe, {ignore = self.ignore, owned = p.owned, fee = p.fee})
-    local make = ns.CraftPlan.Build(recipe, {ignore = self.ignore, craftAll = true, owned = p.owned, fee = p.fee})
+    if plan.extra > 0 then self.category:SetText(self.category:GetText() .. ns.T("craftExtra", plan.extra)) end
+    local buy = ns.CraftPlan.Build(recipe, {ignore = self.ignore, owned = p.owned, fee = p.fee, quantity = p.quantity})
+    local make = ns.CraftPlan.Build(recipe, {ignore = self.ignore, craftAll = true, owned = p.owned, fee = p.fee, quantity = p.quantity})
     self.summary:SetHeight(124)
-    self.summary:SetText(ns.T("craftPlanSummary", recipe.count, K.Money(plan.cost), K.Money(plan.cash),
+    self.summary:SetText(ns.T("craftBatchSummary", plan.count, plan.crafts, K.Money(plan.cost), K.Money(plan.unitCost), K.Money(plan.cash),
         K.Money(plan.revenue), K.Money(plan.margin), K.Money(buy.cost), K.Money(make.cost)))
+    local notes = {}
+    if plan.missing > 0 then notes[#notes + 1] = ns.T("craftBatchMissing", plan.missing) end
+    if plan.stale > 0 then notes[#notes + 1] = ns.T("craftBatchStale", plan.stale) end
+    if plan.short > 0 then notes[#notes + 1] = ns.T("craftBatchShort", plan.short) end
+    notes[#notes + 1] = ns.T("craftBatchEstimate")
+    self.batchNote:SetWidth(width)
+    self.batchNote:SetText(table.concat(notes, " | "))
+    self.batchNote:SetTextColor(unpack((plan.missing > 0 or plan.stale > 0 or plan.short > 0) and K.theme.negative or K.theme.secondary))
     self.materials:SetText(ns.T(p.craftAll and "craftAllMake" or "craftAllBuy"))
     local vendor = ns.vendorPrices[p.id]
     local editable = ns.Crafting.IsInput(p.id) and not vendor
@@ -262,11 +372,10 @@ function UI:New(parent)
     self.frame = ns.NewFrame("Frame", nil, parent)
     local f = self.frame
     f:SetAllPoints(parent)
-    self.mode = K.ProfessionModes(f, function() return self.props.profession end, "craft")
     self.picker = K.FamilyPicker:New(f, function(id) self:SetProps({recipe = id}) end)
-    self.picker.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 114, -3)
+    self.picker.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -3)
     self.picker.frame:SetWidth(170); self.picker.frame.text:SetWidth(138)
-    self.listTitle = K.Label(f, "", 118, -11, 240, "heading")
+    self.listTitle = K.Label(f, "", 12, -11, 240, "heading")
     self.back = K.Button(f, ns.T("craftListBack"), 72, function() self:SetProps({view = "list"}) end, "quiet")
     self.back:SetPoint("LEFT", self.picker.frame, "RIGHT", 4, 0)
     K.Tooltip(self.back, ns.T("craftListBack"), ns.T("craftListBackTip"))
@@ -274,7 +383,8 @@ function UI:New(parent)
         if self.props.view == "list" then ns.Crafting.CompleteProfession(self.props.profession, K.ScanMode())
         else
             ns.Crafting.Complete(ns.craftCatalogs[self.props.profession].byItem[self.props.recipe], K.ScanMode(),
-                {make = self.make, ignore = self.ignore, craftAll = self.props.craftAll, owned = self.props.owned, fee = self.props.fee})
+                {make = self.make, ignore = self.ignore, craftAll = self.props.craftAll, owned = self.props.owned,
+                    fee = self.props.fee, quantity = self.props.quantity})
         end
         self:Render()
     end, "main")
@@ -300,6 +410,10 @@ function UI:New(parent)
         self.rows[i] = row
         self.scroll:Wheel(row.frame)
     end
+    for i = 1, 10 do
+        local header = K.GroupRow:New(f, function(key) self.collapsed[key] = not self.collapsed[key] or nil; self:Render() end)
+        header.frame:SetHeight(29); header.frame:Hide(); self.scroll:Wheel(header.frame); self.groups[i] = header
+    end
     self.spoiler = K.Button(f, "", 400, function() self.showHidden = not self.showHidden; self:Render() end, "quiet")
     self.spoiler.text:ClearAllPoints(); self.spoiler.text:SetPoint("LEFT", self.spoiler, "LEFT", 10, 0)
     self.spoiler:Hide()
@@ -307,35 +421,43 @@ function UI:New(parent)
     local info = K.Button(f, ns.T("tradeInfo"), 24, function() end)
     info:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 122, 4)
     K.Tooltip(info, ns.T("craftProfessions"), ns.T("alchemyInfo") .. "\n\n" .. ns.T("craftMarginTip"))
-    self.materials = K.Button(f, "", 192, function()
+    self.materials = K.Button(f, "", 178, function()
         self.make = {}; self:SetProps({craftAll = not self.props.craftAll, page = 1})
     end)
     self.materials:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 58)
     K.Tooltip(self.materials, ns.T("craftMaterialSource"), ns.T("craftTreeTip"))
-    self.owned = K.Button(f, "", 140, function() self:SetProps({owned = not self.props.owned}) end)
+    self.owned = K.Button(f, "", 126, function() self:SetProps({owned = not self.props.owned}) end)
     self.owned:SetPoint("LEFT", self.materials, "RIGHT", 8, 0)
     K.Tooltip(self.owned, ns.T("craftOwnedTitle"), ns.T("craftOwnedTip"))
-    self.status = K.Label(f, ns.T("tradeReadyShort"), 0, 0, 200)
-    self.status:ClearAllPoints(); self.status:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 32)
-    self.status:SetHeight(14)
+    self.quantityLabel = K.Label(f, ns.T("craftQuantity"), 0, 0, 86)
+    self.quantityLabel:ClearAllPoints(); self.quantityLabel:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 330, 64)
+    self.quantity = K.Edit(f, 56)
+    self.quantity:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 422, 58)
+    self.quantity:SetNumeric(true); self.quantity:SetMaxLetters(6)
+    K.Tooltip(self.quantity, ns.T("craftQuantity"), ns.T("craftQuantityTip"))
+    K.LiveEdit(self.quantity, function(edit)
+        local quantity = tonumber(edit:GetText())
+        if quantity and quantity >= 1 and quantity <= 100000 and quantity == math.floor(quantity) then
+            self:SetProps({quantity = quantity})
+        end
+    end)
+    self.quantity:SetScript("OnEditFocusGained", function() self.editingQuantity = true end)
+    self.quantity:SetScript("OnEditFocusLost", function() self:SaveQuantity() end)
+    self.quantity:SetScript("OnEscapePressed", function(edit)
+        edit:SetText(tostring(self.plan and self.plan.requested or 1)); edit:ClearFocus()
+    end)
+    self.batchNote = K.Label(f, "", 0, 0, 400)
+    self.batchNote:ClearAllPoints(); self.batchNote:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 86)
+    self.batchNote:SetHeight(14)
     self.fee = K.Button(f, "", 106, function() self:SetProps({fee = self.props.fee == 0.05 and 0.15 or 0.05}) end)
     self.fee:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 4)
     K.Tooltip(self.fee, ns.T("tradeFeeTitle"), ns.T("tradeFeeTip"))
-    local buy = K.Button(f, ns.T("tradeBuy"), 84, function() ns.Trader.OpenBuy(self.props.id) end)
+    local buy = K.Button(f, ns.T("tradeBuy"), 84, function() self:BuyMaterial() end)
     self.buy = buy
     buy:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     self.update = K.Button(f, ns.T("tradeUpdate"), 84, function() ns.Markets.Scan(self.props.id) end)
     self.update:SetPoint("RIGHT", buy, "LEFT", -6, 0)
     K.Tooltip(self.update, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
-    self.stop = K.Button(f, ns.T("tradeStop"), 60, function()
-        ns.Batch.Stop(); ns.Scan.Stop(); self:Controls()
-    end)
-    self.stop:SetPoint("RIGHT", buy, "LEFT", -6, 0)
-    self.resume = K.Button(f, ns.T("tradeResume"), 92, function()
-        if ns.Scan.state.phase == "paused" then ns.Scan.Start("pages") end
-        self:Controls()
-    end)
-    self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
     self.inspector = K.Inspector:New(f)
     local panel = self.inspector.body
     self.selection = self.inspector.item
@@ -343,6 +465,9 @@ function UI:New(parent)
     self.category:SetHeight(28); self.category:SetJustifyV("TOP")
     self.summary = K.Label(panel, "", 12, -80, 240)
     self.summary:SetHeight(124); self.summary:SetJustifyV("TOP")
+    self.batch = K.BatchPanel:New(panel)
+    self.batch.frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -78)
+    self.batch.frame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 8)
     self.priceLabel = K.Label(panel, ns.T("alchemyPriceLabel"), 12, -206, 240)
     self.priceEdit = K.Edit(panel, 118)
     self.priceEdit:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -226)

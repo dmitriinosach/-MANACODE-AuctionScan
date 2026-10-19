@@ -2,7 +2,6 @@ local _, ns = ...
 local UI = {props = {mode = "favorites", fee = 0.05}, rows = {}}
 ns.CollectionsUI = UI
 function UI:SetProps(props)
-    ns.Batch.Stop()
     for key, value in pairs(props) do self.props[key] = value end
     self.selected = nil; self.scroll.offset = 0; self:Render()
 end
@@ -61,7 +60,7 @@ function UI:Render()
         local entry = entries[offset + i]
         if i > self.scroll.visible then entry = nil end
         if entry then
-            row:SetProps({id = entry.raw, quote = entry.quote, margin = entry.margin, width = width,
+            row:SetProps({id = entry.raw, quote = entry.quote, margin = entry.margin, width = width, reveal = true,
                 active = entry.raw == self.selected, detail = entry.detail, extraTip = entry.noteKey and ns.T(entry.noteKey)})
         else row.frame:Hide() end
     end
@@ -80,8 +79,6 @@ function UI:Render()
         self.summary:SetText(ns.T("collectionActionsTip")); self.open:Hide(); self.history:Disable(); self.buy:Disable()
     end
     if ns.Scan.state.phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
-    if ns.Scan.state.phase == "paused" then self.resume:Show() else self.resume:Hide() end
-    if ns.Scan.state.phase ~= "idle" then self.stop:Show() else self.stop:Hide() end
 end
 function UI:New(parent)
     local K = ns.TradeKit
@@ -105,7 +102,7 @@ function UI:New(parent)
     self.add:SetPoint("LEFT", self.input, "RIGHT", 6, 0)
     self.hint = K.Label(f, "", 10, -38, 460); self.hint:SetHeight(32); self.hint:SetJustifyV("TOP")
     self.scan = K.Button(f, ns.T("collectionScan"), 140, function()
-        ns.Collections.Scan(self.props.mode, self.props.event); self:Render()
+        ns.Collections.Scan(self.props.mode, self.props.event, K.ScanMode()); self:Render()
     end, "main")
     self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -282, -5)
     K.Tooltip(self.scan, ns.T("collectionScan"), ns.T("collectionScanTip"))
@@ -124,18 +121,12 @@ function UI:New(parent)
         row.frame:SetHeight(28); self.rows[i] = row; self.scroll:Wheel(row.frame)
     end
     self.empty = K.Label(f, "", 10, -104, 440); self.empty:SetHeight(64)
-    self.status = K.Label(f, "", 0, 0, 440)
-    self.status:ClearAllPoints(); self.status:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 32)
     self.buy = K.Button(f, ns.T("tradeBuy"), 84, function() if self.selected then ns.Trader.OpenBuy(self.selected) end end)
     self.buy:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
-    self.stop = K.Button(f, ns.T("tradeStop"), 60, function() ns.Batch.Stop(); ns.Scan.Stop(); self:Render() end)
-    self.stop:SetPoint("RIGHT", self.buy, "LEFT", -6, 0)
-    self.resume = K.Button(f, ns.T("tradeResume"), 92, function() ns.Scan.Start("pages"); self:Render() end)
-    self.resume:SetPoint("RIGHT", self.stop, "LEFT", -6, 0)
     self.inspector = K.Inspector:New(f)
     local panel = self.inspector.body
     self.summary = K.Label(panel, "", 12, -48, 240); self.summary:SetHeight(200); self.summary:SetJustifyV("TOP")
-    self.history = K.Button(panel, ns.T("itemHistory"), 114, function() K.Inspector.Switch("market") end)
+    self.history = K.Button(panel, ns.T("itemHistory"), 114, function() K.Inspector.Switch("market", self.selected) end)
     self.history:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 12, 40)
     self.open = K.Button(panel, ns.T("collectionOpenRecipe"), 150, function() if self.selected then ns.Collections.OpenRecipe(self.selected) end end)
     self.open:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 12, 8)

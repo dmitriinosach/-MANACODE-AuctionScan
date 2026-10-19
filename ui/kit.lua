@@ -5,39 +5,54 @@ function K.Money(copper)
     if not copper then return ns.T("tradeNoPrice") end
     return (copper < 0 and "-" or "") .. GetCoinTextureString(math.floor(math.abs(copper) + 0.5))
 end
+function K.MoneyShort(copper, size)
+    if not copper then return ns.T("tradeNoPrice") end
+    local rounded = math.floor(math.abs(copper) / 100 + 0.5) * 100
+    return (copper < 0 and "-" or "") .. GetCoinTextureString(rounded, size or 10)
+end
 K.theme = {
     white = "Interface\\Buttons\\WHITE8X8",
+    grip = {art = "Interface\\AddOns\\ManaCode_AuctionScan\\art\\grip",
+        cursor = "Interface\\AddOns\\ManaCode_AuctionScan\\art\\grip_cursor",
+        blank = "Interface\\AddOns\\ManaCode_AuctionScan\\art\\blank",
+        color = {1, 0.80, 0.30}, lit = {1, 0.93, 0.62}, press = {0.78, 0.58, 0.18}},
     marble = "Interface\\PaperDollInfoFrame\\UI-Character-CharacterTab-L1",
     highlight = "Interface\\QuestFrame\\UI-QuestTitleHighlight",
-    button = "Interface\\Buttons\\UI-Panel-Button-",
-    text = {0.94, 0.95, 0.97}, secondary = {0.76, 0.72, 0.62},
-    gold = {1, 0.82, 0}, positive = {0.4, 1, 0.5}, negative = {1, 0.35, 0.3},
-    background = {0.03, 0.04, 0.05, 1}, panel = {0.06, 0.07, 0.09, 1},
-    edge = {0.40, 0.42, 0.48, 0.9}, line = {1, 1, 1, 0.07},
-    row = {1, 1, 1, 0.025}, selected = {0.62, 0.48, 0.18, 0.22},
-    hover = {1, 1, 1, 0.08}, head = {0.40, 0.36, 0.30, 0.35},
-    buttonSkin = {bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+    text = {0.96, 0.93, 0.87}, secondary = {0.74, 0.68, 0.58}, off = {0.52, 0.47, 0.40},
+    gold = {1, 0.82, 0}, accent = {0.95, 0.78, 0.28},
+    positive = {0.40, 0.82, 0.48}, negative = {0.94, 0.42, 0.34},
+    background = {0.135, 0.115, 0.09, 1}, panel = {0.185, 0.16, 0.125, 1}, card = {0.235, 0.205, 0.165, 1},
+    field = {0.075, 0.065, 0.05, 1},
+    edge = {0.46, 0.40, 0.30, 1}, line = {1, 0.90, 0.70, 0.12},
+    row = {1, 0.90, 0.70, 0.05}, selected = {1, 0.82, 0, 0.20}, match = {0.40, 0.82, 0.48, 0.20},
+    hover = {1, 0.90, 0.70, 0.10}, head = {0.26, 0.225, 0.18, 1}, group = {0.165, 0.14, 0.11, 1}, subgroup = {0.125, 0.105, 0.085, 1},
+    buttonSkin = {bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 16,
-        edgeSize = 12, insets = {left = 3, right = 3, top = 3, bottom = 3}},
-    control = {bg = {0.10, 0.11, 0.13, 1}, hover = {0.17, 0.18, 0.21, 1},
-        down = {0.06, 0.065, 0.08, 1}, edge = {0.42, 0.44, 0.50, 0.9}},
-    main = {bg = {0.165, 0.13, 0.03, 1}, hover = {0.23, 0.18, 0.04, 1},
-        down = {0.11, 0.085, 0.02, 1}, edge = {0.72, 0.60, 0.16, 1}},
-    quiet = {bg = {0, 0, 0, 0}, hover = {1, 1, 1, 0.04},
-        down = {0, 0, 0, 0.25}, edge = {0.18, 0.21, 0.26, 1}},
-    off = {0.60, 0.58, 0.54},
+        edgeSize = 10, insets = {left = 2, right = 2, top = 2, bottom = 2}},
+    control = {bg = {0.32, 0.275, 0.215, 1}, hover = {0.40, 0.345, 0.27, 1},
+        down = {0.24, 0.205, 0.16, 1}, edge = {0.60, 0.52, 0.40, 1}, text = {0.96, 0.93, 0.87}},
+    main = {bg = {0.40, 0.30, 0.08, 1}, hover = {0.50, 0.38, 0.11, 1},
+        down = {0.30, 0.22, 0.05, 1}, edge = {0.88, 0.72, 0.24, 1}, text = {1, 0.82, 0}},
+    quiet = {bg = {1, 0.90, 0.70, 0.05}, hover = {1, 0.90, 0.70, 0.11},
+        down = {0, 0, 0, 0.25}, edge = {0.46, 0.40, 0.30, 1}, text = {0.88, 0.84, 0.76}},
+    nav = {bg = {0, 0, 0, 0}, hover = {1, 0.90, 0.70, 0.06},
+        down = {0, 0, 0, 0.2}, edge = {0, 0, 0, 0}, text = {0.78, 0.72, 0.62}},
+    segment = {bg = {0, 0, 0, 0}, hover = {1, 0.90, 0.70, 0.07},
+        down = {0, 0, 0, 0.2}, edge = {0, 0, 0, 0}, text = {0.78, 0.72, 0.62}},
+    chosen = {bg = {0.46, 0.40, 0.31, 1}, edge = {0.70, 0.61, 0.47, 1}, text = {1, 1, 1}},
     chart = {grid = {1, 1, 1, 0.07}, axis = {1, 1, 1, 0.20}, cursor = {1, 0.95, 0.75, 0.6},
         shade = {0, 0, 0, 0.8}, median = {0.72, 0.80, 0.92, 0.55}, minimum = {1, 0.82, 0},
-        quartile = {0.40, 0.85, 0.50}, supply = {0.30, 0.56, 0.80}, added = {0.34, 0.68, 0.46},
-        early = {0.86, 0.62, 0.30}, late = {0.60, 0.60, 0.64}, tile = {0.08, 0.09, 0.11, 1}},
+        quartile = {0.38, 0.80, 0.48}, supply = {0.38, 0.60, 0.88}, added = {0.38, 0.80, 0.48},
+        early = {0.86, 0.62, 0.30}, late = {0.60, 0.60, 0.64}, tile = {0.16, 0.17, 0.21, 1}},
 }
 function K.Label(parent, text, x, y, width, kind)
-    local font = kind == "heading" and "GameFontNormal" or "GameFontHighlightSmall"
+    local font = (kind == "heading" or kind == "title") and "GameFontNormal" or "GameFontHighlightSmall"
     local fs = parent:CreateFontString(nil, "OVERLAY", font)
     fs:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
     fs:SetWidth(width)
     fs:SetJustifyH("LEFT")
-    fs:SetTextColor(unpack(K.theme[kind == "heading" and "gold" or "text"]))
+    local color = kind == "title" and K.theme.gold or (kind == "secondary" and K.theme.secondary or K.theme.text)
+    fs:SetTextColor(unpack(color))
     fs:SetText(text)
     return fs
 end
@@ -50,6 +65,7 @@ function K.Background(parent)
 end
 function K.Panel(parent)
     if not rawget(parent, "tradeBase") then parent.tradeBase = K.Background(parent) end
+    parent.tradeBase:SetVertexColor(unpack(K.theme.panel))
     parent:SetBackdrop({edgeFile = K.theme.buttonSkin.edgeFile, edgeSize = 12,
         insets = K.theme.buttonSkin.insets})
     parent:SetAlpha(1)
@@ -75,12 +91,23 @@ function K.Tooltip(parent, title, body)
 end
 function K.StyleButton(b)
     local skin = K.theme[b.kind] or K.theme.control
-    local fill = b.active and K.theme.main.bg or skin[b.pressed and "down" or (b.hovered and "hover" or "bg")]
-    local edge = b.active and K.theme.main.edge or skin.edge
+    local fill = skin[b.pressed and "down" or (b.hovered and "hover" or "bg")]
+    local edge, text = skin.edge, skin.text
+    if b.active and b.kind == "nav" then
+        text = K.theme.gold
+    elseif b.active and b.kind ~= "main" then
+        fill, edge, text = K.theme.chosen.bg, K.theme.chosen.edge, K.theme.chosen.text
+    end
+    if b.btnDisabled and b.kind == "main" then fill, edge = K.theme.control.down, K.theme.edge end
     b:SetBackdropColor(unpack(fill))
     b:SetBackdropBorderColor(unpack(edge))
-    b.text:SetTextColor(unpack(b.btnDisabled and K.theme.off
-        or ((b.active or b.kind == "main") and K.theme.gold or K.theme.text)))
+    b.text:SetTextColor(unpack(b.btnDisabled and K.theme.off or text))
+    if rawget(b, "navLine") then
+        if b.active then b.navLine:Show() else b.navLine:Hide() end
+    end
+    if rawget(b, "dot") then
+        b.dot:SetVertexColor(unpack(b.btnDisabled and K.theme.off or (b.active and K.theme.accent or K.theme.edge)))
+    end
 end
 function K.Button(parent, text, width, fn, kind)
     local b = ns.NewFrame("Button", nil, parent)
@@ -101,6 +128,8 @@ function K.Button(parent, text, width, fn, kind)
     textRegion:SetJustifyH("CENTER")
     b:SetText(text)
     b:SetBackdrop(K.theme.buttonSkin)
+    if kind == "main" then b:SetHeight(26); K.LargeText(b) end
+    if kind == "nav" then K.MakeNav(b) end
     b.nativeEnable, b.nativeDisable = b.Enable, b.Disable
     b.Enable = function(self) self.btnDisabled = false; self.nativeEnable(self); K.StyleButton(self) end
     b.Disable = function(self) self.btnDisabled = true; self.nativeDisable(self); K.StyleButton(self) end
@@ -114,6 +143,119 @@ function K.Button(parent, text, width, fn, kind)
     end)
     K.StyleButton(b)
     return b
+end
+function K.AuctionChrome(parent, root)
+    root:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+    root:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 12)
+    root:SetFrameLevel(parent:GetFrameLevel() + 6)
+    root:EnableMouse(true)
+    K.Panel(root)
+    root.tradeBase:SetVertexColor(unpack(K.theme.background))
+    local chrome = {}
+    chrome.title = K.Label(root, ns.T("tradeTitle"), 14, -11, 300, "title")
+    chrome.close = ns.NewFrame("Button", nil, root, "UIPanelCloseButton")
+    chrome.close:SetPoint("TOPRIGHT", root, "TOPRIGHT", -2, -2)
+    chrome.close:SetScript("OnClick", function() HideUIPanel(parent) end)
+    for _, y in ipairs({-33, -61}) do
+        local line = K.Rule(root, y)
+        line:SetPoint("TOPLEFT", root, "TOPLEFT", 6, y); line:SetPoint("TOPRIGHT", root, "TOPRIGHT", -6, y)
+    end
+    local foot = K.Rule(root, 0)
+    foot:ClearAllPoints()
+    foot:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 6, 30); foot:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -6, 30)
+    chrome.money = root:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    chrome.money:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 14, 10)
+    chrome.money:SetJustifyH("LEFT")
+    chrome.status = root:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    chrome.status:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 190, 10)
+    chrome.status:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -212, 10)
+    chrome.status:SetJustifyH("LEFT")
+    chrome.status:SetTextColor(unpack(K.theme.secondary))
+    chrome.stop = K.Button(root, ns.T("tradeStop"), 70, nil)
+    chrome.stop:SetHeight(20)
+    chrome.stop:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -34, 6)
+    chrome.resume = K.Button(root, ns.T("tradeResume"), 92, nil)
+    chrome.resume:SetHeight(20)
+    chrome.resume:SetPoint("RIGHT", chrome.stop, "LEFT", -6, 0)
+    chrome.stop:Hide(); chrome.resume:Hide()
+    return chrome
+end
+function K.NavDivider(parent, after)
+    local divider = parent:CreateTexture(nil, "ARTWORK")
+    divider:SetTexture(K.theme.white); divider:SetVertexColor(unpack(K.theme.edge))
+    divider:SetWidth(1); divider:SetHeight(16)
+    divider:SetPoint("LEFT", after, "RIGHT", 8, 0)
+    return divider
+end
+function K.MakeNav(b)
+    b.kind = "nav"
+    b:SetHeight(26)
+    K.LargeText(b)
+    if not rawget(b, "navLine") then
+        b.navLine = b:CreateTexture(nil, "ARTWORK")
+        b.navLine:SetTexture(K.theme.white)
+        b.navLine:SetVertexColor(unpack(K.theme.gold))
+        b.navLine:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 4, 1)
+        b.navLine:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -4, 1)
+        b.navLine:SetHeight(2)
+    end
+    K.StyleButton(b)
+    return b
+end
+function K.Chip(parent, text, changed)
+    local b = K.Button(parent, text, 80, nil, "quiet")
+    b.checked = false
+    b.dot = b:CreateTexture(nil, "ARTWORK")
+    b.dot:SetTexture(K.theme.white); b.dot:SetWidth(6); b.dot:SetHeight(6)
+    b.dot:SetPoint("LEFT", b, "LEFT", 8, 0)
+    b.text:ClearAllPoints()
+    b.text:SetPoint("LEFT", b, "LEFT", 19, 0); b.text:SetPoint("RIGHT", b, "RIGHT", -8, 0)
+    b.text:SetJustifyH("LEFT")
+    b.SetChecked = function(self, value) self.checked = value and true or false; self:SetActive(self.checked) end
+    b.GetChecked = function(self) return self.checked end
+    b.onClick = function(self) self:SetChecked(not self.checked); changed(self.checked) end
+    K.FitButton(b, 32)
+    K.StyleButton(b)
+    return b
+end
+function K.Segment(parent, entries, choose)
+    local seg = {buttons = {}, order = {}}
+    seg.frame = ns.NewFrame("Frame", nil, parent)
+    seg.frame:SetHeight(22)
+    seg.frame:SetBackdrop(K.theme.buttonSkin)
+    seg.frame:SetBackdropColor(unpack(K.theme.quiet.bg))
+    seg.frame:SetBackdropBorderColor(unpack(K.theme.edge))
+    local x = 2
+    for i, entry in ipairs(entries) do
+        local key = entry.key
+        local b = K.Button(seg.frame, entry.label, 60, function() choose(key) end, "segment")
+        b:SetHeight(18)
+        K.FitButton(b, 20)
+        b:SetPoint("LEFT", seg.frame, "LEFT", x, 0)
+        x = x + (b:GetWidth() or 60) + 1
+        seg.buttons[key], seg.order[i] = b, b
+    end
+    seg.frame:SetWidth(x + 1)
+    seg.Select = function(self, key) for k, b in pairs(self.buttons) do b:SetActive(k == key) end end
+    seg.Enable = function(self) for _, b in ipairs(self.order) do b:Enable() end end
+    seg.Disable = function(self) for _, b in ipairs(self.order) do b:Disable() end end
+    return seg
+end
+function K.Card(parent)
+    local card = ns.NewFrame("Frame", nil, parent)
+    card:SetBackdrop(K.theme.buttonSkin)
+    card:SetBackdropColor(unpack(K.theme.card))
+    card:SetBackdropBorderColor(unpack(K.theme.edge))
+    return card
+end
+function K.LargeText(b)
+    b:SetNormalFontObject("GameFontNormal")
+    b:SetHighlightFontObject("GameFontHighlight")
+    b:SetDisabledFontObject("GameFontHighlight")
+    b.text:SetFontObject("GameFontNormal")
+end
+function K.FitButton(b, pad)
+    b:SetWidth(math.ceil((b.text:GetStringWidth() or 60) + (pad or 24)))
 end
 function K.Navigation(parent, text, fn)
     local b = ns.NewFrame("Button", nil, parent)
@@ -139,12 +281,105 @@ function K.Edit(parent, width)
     edit:SetAutoFocus(false)
     edit:SetFontObject("GameFontHighlightSmall")
     edit:SetTextInsets(6, 6, 0, 0)
-    edit:SetBackdrop({ bgFile = K.theme.white, edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 8, edgeSize = 8, insets = { left = 2, right = 2, top = 2, bottom = 2 } })
-    edit:SetBackdropColor(unpack(K.theme.background))
-    edit:SetBackdropBorderColor(unpack(K.theme.control.edge))
+    edit:SetBackdrop(K.theme.buttonSkin)
+    edit:SetBackdropColor(unpack(K.theme.field))
+    edit:SetBackdropBorderColor(unpack(K.theme.edge))
     edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local native = edit.SetScript
+    edit.SetScript = function(self, name, fn)
+        if name ~= "OnEditFocusGained" and name ~= "OnEditFocusLost" then native(self, name, fn); return end
+        local color = name == "OnEditFocusGained" and K.theme.accent or K.theme.edge
+        native(self, name, function(box, ...)
+            box:SetBackdropBorderColor(unpack(color))
+            if fn then fn(box, ...) end
+        end)
+    end
+    edit:SetScript("OnEditFocusGained", nil)
+    edit:SetScript("OnEditFocusLost", nil)
     return edit
+end
+function K.LiveEdit(edit, apply, delay)
+    local wait = delay or 0.4
+    local function flush(box)
+        if not box.liveAt then return end
+        box.liveAt = nil
+        box:SetScript("OnUpdate", nil)
+        apply(box)
+    end
+    edit:SetScript("OnTextChanged", function(box, typed)
+        if not typed then return end
+        box.liveAt = GetTime() + wait
+        box:SetScript("OnUpdate", function(self) if self.liveAt and GetTime() >= self.liveAt then flush(self) end end)
+    end)
+    edit:SetScript("OnEnterPressed", function(box)
+        box.liveAt = box.liveAt or GetTime()
+        flush(box)
+        box:ClearFocus()
+    end)
+end
+function K.Window(parent, title, width, height)
+    local frame = ns.NewFrame("Frame", nil, parent)
+    frame:SetWidth(width); frame:SetHeight(height)
+    frame:SetPoint("CENTER", parent, "CENTER", 0, 0)
+    frame:SetFrameStrata("DIALOG"); frame:EnableMouse(true)
+    frame:SetMovable(true); frame:SetClampedToScreen(true); frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    K.Panel(frame)
+    frame.heading = K.Label(frame, title, 14, -12, width - 100, "heading")
+    frame.close = K.Button(frame, ns.T("acCloseWindow"), 66, function() frame:Hide() end, "quiet")
+    frame.close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -8)
+    frame:Hide()
+    return frame
+end
+local RecordRow = {}
+RecordRow.__index = RecordRow
+K.RecordRow = RecordRow
+function RecordRow:New(parent, choose)
+    local row = setmetatable({}, self)
+    row.frame = K.ItemChoice(parent, function() if row.props then choose(row.props.key) end end)
+    row.frame:SetHeight(42); row.frame.icon:SetWidth(26); row.frame.icon:SetHeight(26)
+    row.detail = K.Label(row.frame, "", 32, -24, 300)
+    row.detail:SetTextColor(unpack(K.theme.secondary))
+    row.amount = K.Label(row.frame, "", 0, -6, 170)
+    row.amount:ClearAllPoints(); row.amount:SetPoint("TOPRIGHT", row.frame, "TOPRIGHT", -8, -6)
+    row.amount:SetJustifyH("RIGHT")
+    row.state = K.Label(row.frame, "", 0, -24, 170)
+    row.state:ClearAllPoints(); row.state:SetPoint("TOPRIGHT", row.frame, "TOPRIGHT", -8, -24)
+    row.state:SetJustifyH("RIGHT")
+    row.result = K.ItemChoice(row.frame, function() if row.props then choose(row.props.key) end end)
+    row.result:SetPoint("TOPRIGHT", row.frame, "TOPRIGHT", -8, -23)
+    row.result:SetHeight(18); row.result.icon:SetWidth(14); row.result.icon:SetHeight(14)
+    row.result.text:ClearAllPoints(); row.result.text:SetPoint("LEFT", row.result, "LEFT", 20, 0)
+    return row
+end
+function RecordRow:SetProps(props)
+    self.props = props; self:Render()
+end
+function RecordRow:Render()
+    local p, frame = self.props, self.frame
+    local width, side = p.width or 700, math.min(210, (p.width or 700) * 0.38)
+    frame:SetWidth(width)
+    if p.itemID then
+        K.SetItemChoice(frame, p.itemID, p.active)
+        frame.itemLink = p.link and p.link:find("item:", 1, true) and p.link or nil
+        frame.extraTip = p.tip
+    else
+        frame.itemID = nil; frame.icon:SetTexture(nil); frame.text:SetText(p.title or "")
+        frame.text:SetTextColor(unpack(K.theme.text)); frame:Show()
+        if p.active then frame.selected:Show() else frame.selected:Hide() end
+    end
+    frame.text:ClearAllPoints(); frame.text:SetPoint("TOPLEFT", frame, "TOPLEFT", 32, -6)
+    frame.text:SetWidth(math.max(40, width - side - 44))
+    self.detail:SetWidth(math.max(40, width - side - 44))
+    self.amount:SetWidth(side); self.state:SetWidth(side)
+    self.detail:SetText(p.detail or ""); self.amount:SetText(p.amount or ""); self.state:SetText(p.state or "")
+    if p.outputID then
+        K.SetItemChoice(self.result, p.outputID, false)
+        self.result:SetWidth(side); self.result.text:SetWidth(side - 22)
+        self.result.text:SetText(ns.Markets.Name(p.outputID) .. " x" .. p.outputCount)
+        self.state:Hide()
+    else self.result:Hide(); self.state:Show() end
 end
 function K.Check(parent, changed)
     local check = ns.NewFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
@@ -166,7 +401,7 @@ function K.ItemChoice(parent, fn)
     b:SetScript("OnEnter", function(self)
         if not self.itemID then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetHyperlink("item:" .. self.itemID)
+        GameTooltip:SetHyperlink(self.itemLink or ("item:" .. self.itemID))
         if ns.Markets then
             local q = ns.Markets.Quote(self.itemID)
             if q and q.vendor then
@@ -185,6 +420,7 @@ function K.ItemChoice(parent, fn)
 end
 function K.SetItemChoice(b, id, active, quality)
     b.itemID = id
+    b.itemLink = nil
     local _, _, rarity = ns.Compat.ItemInfo(id)
     b.quality = quality or rarity
     b.text:SetText(ns.Markets.Name(id))
@@ -207,7 +443,21 @@ function K.TableHeader(parent, y)
     local band = parent:CreateTexture(nil, "BACKGROUND")
     band:SetTexture(K.theme.white); band:SetVertexColor(unpack(K.theme.head))
     band:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, y + 5)
+    parent.tradeHeadLine = parent:CreateTexture(nil, "BORDER")
+    parent.tradeHeadLine:SetTexture(K.theme.white); parent.tradeHeadLine:SetVertexColor(unpack(K.theme.edge))
+    parent.tradeHeadLine:SetPoint("TOPLEFT", band, "BOTTOMLEFT", 0, 0)
+    parent.tradeHeadLine:SetPoint("TOPRIGHT", band, "BOTTOMRIGHT", 0, 0); parent.tradeHeadLine:SetHeight(1)
     band:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -302, y + 5); band:SetHeight(20)
+    return band
+end
+function K.HeaderBand(parent)
+    local band = parent:CreateTexture(nil, "BACKGROUND")
+    band:SetTexture(K.theme.white); band:SetVertexColor(unpack(K.theme.head))
+    band:SetAllPoints(parent)
+    local line = parent:CreateTexture(nil, "BORDER")
+    line:SetTexture(K.theme.white); line:SetVertexColor(unpack(K.theme.edge))
+    line:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 0, 0)
+    line:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0); line:SetHeight(1)
     return band
 end
 local Sorter = {}
@@ -271,7 +521,7 @@ function Sorter:Apply(entries, getters, group)
     for i, item in ipairs(keyed) do result[i] = item.entry end
     return result
 end
-local Inspector = {mode = "summary", all = {}}
+local Inspector = {all = {}}
 Inspector.__index = Inspector
 K.Inspector = Inspector
 function Inspector:New(parent)
@@ -280,15 +530,11 @@ function Inspector:New(parent)
     view.frame = panel
     panel:SetFrameLevel(parent:GetFrameLevel() + 12)
     panel:EnableMouse(true); K.Panel(panel)
-    view.item = K.ItemChoice(panel, function() Inspector.Switch("market") end)
+    view.item = K.ItemChoice(panel, function() if view.props then Inspector.Switch("market", view.props.id) end end)
     view.item.extraTip = ns.T("itemHistoryOpenTip")
-    view.item:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -8)
+    view.item:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -6)
     view.item:SetWidth(180); view.item.text:SetWidth(148)
-    view.offers = K.Button(panel, ns.T("offersOpen"), 54, function()
-        if view.item.itemID then ns.OfferPreview.Open(view.item.itemID) end
-    end, "quiet")
-    view.offers:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -10)
-    K.Tooltip(view.offers, ns.T("offersTitle"), ns.T("offersOpenTip"))
+    view.item:SetHeight(30); view.item.text:SetHeight(26); view.item.text:SetJustifyV("MIDDLE")
     if ns.Collections then
         view.actions = K.Menu(panel, {{key = "favorite", labelKey = "collectionFavorite"},
             {key = "tracked", labelKey = "collectionTrack"}}, function(key)
@@ -299,17 +545,19 @@ function Inspector:New(parent)
         end)
         view.actions.frame:SetWidth(24); view.actions.frame:SetText("+"); view.actions.frame.arrow:Hide()
         view.actions.frame.text:ClearAllPoints(); view.actions.frame.text:SetPoint("CENTER", view.actions.frame, "CENTER", 0, 0)
-        view.actions.frame:SetPoint("RIGHT", view.offers, "LEFT", -6, 0)
+        view.actions.frame:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -10)
         K.Tooltip(view.actions.frame, ns.T("collectionActions"), ns.T("collectionActionsTip"))
     end
-    view.tabs = {
-        summary = K.Button(panel, ns.T("inspectorSummary"), 117, function() Inspector.Switch("summary") end, "quiet"),
-        market = K.Button(panel, ns.T("inspectorMarket"), 117, function() Inspector.Switch("market") end, "quiet"),
-    }
-    view.tabs.market:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -38)
-    view.tabs.summary:SetPoint("RIGHT", view.tabs.market, "LEFT", -6, 0)
-    K.Tooltip(view.tabs.summary, ns.T("inspectorSummary"), ns.T("inspectorSummaryTip"))
-    K.Tooltip(view.tabs.market, ns.T("inspectorMarket"), ns.T("inspectorMarketTip"))
+    view.market = K.Button(panel, ns.T("inspectorMarket"), 117, function()
+        if view.props then Inspector.Switch("market", view.props.id) end
+    end)
+    view.market:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -40)
+    K.Tooltip(view.market, ns.T("inspectorMarket"), ns.T("inspectorMarketTip"))
+    view.offers = K.Button(panel, ns.T("offersOpen"), 117, function()
+        if view.item.itemID then ns.OfferPreview.Open(view.item.itemID) end
+    end, "quiet")
+    view.offers:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -40)
+    K.Tooltip(view.offers, ns.T("offersTitle"), ns.T("offersOpenTip"))
     K.Rule(panel, -66)
     view.body = ns.NewFrame("Frame", nil, panel)
     view.body:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -26)
@@ -319,46 +567,40 @@ function Inspector:New(parent)
     view:Layout()
     return view
 end
-function Inspector.Switch(mode)
-    Inspector.mode = mode == "market" and "market" or "summary"
-    for _, view in ipairs(Inspector.all) do view:Layout() end
+function Inspector.Switch(mode, id)
+    if mode == "market" then
+        local target = id or Inspector.lastID
+        if target and ns.MarketWindow then ns.MarketWindow.Open(target) end
+    elseif ns.MarketWindow then ns.MarketWindow.Close() end
 end
 function Inspector:Place(top)
     if self.top == top then return end
     self.top = top; self:Layout()
 end
 function Inspector:Layout()
-    local panel, market = self.frame, Inspector.mode == "market"
+    local panel = self.frame
     panel:ClearAllPoints()
     panel:SetPoint("TOPRIGHT", self.parent, "TOPRIGHT", -6, self.top)
     panel:SetPoint("BOTTOMRIGHT", self.parent, "BOTTOMRIGHT", -6, 2)
-    local item = market and 300 or (self.actions and 150 or 180)
+    panel:SetWidth(264)
+    local item = self.actions and 210 or 240
     self.item:SetWidth(item); self.item.text:SetWidth(item - 32)
-    self.tabs.summary:SetActive(not market); self.tabs.market:SetActive(market)
-    if market then
-        panel:SetPoint("TOPLEFT", self.parent, "TOPLEFT", 6, self.top)
-        self.body:Hide()
-    else
-        panel:SetWidth(264); self.body:Show()
-    end
-    local id = self.props and self.props.id
-    if market and id and panel:IsVisible() then
-        self.board = self.board or ns.MarketBoardUI:New(panel)
-        self.board:SetProps({id = id})
-    elseif self.board then self.board.frame:Hide() end
+    self.body:Show()
 end
 function Inspector:SetProps(props)
-    self.props = props; self:Render()
+    self.props = props
+    Inspector.lastID = props.id
+    self:Render()
 end
 function Inspector:Clear()
     self.props = nil
-    self.item:Hide(); self.offers:Hide()
+    self.item:Hide(); self.offers:Hide(); self.market:Hide()
     if self.actions then self.actions.frame:Hide() end
     self:Layout()
 end
 function Inspector:Render()
     K.SetItemChoice(self.item, self.props.id, self.props.active)
-    self.offers:Show()
+    self.offers:Show(); self.market:Show()
     if self.actions then
         self.actions.frame:Show()
         local C, id = ns.Collections, self.props.id
@@ -494,7 +736,7 @@ end
 local function clamp(value, low, high)
     return math.max(low, math.min(high, math.floor(value + 0.5)))
 end
-function K.ResizeGrip(parent, limits, allowed, apply)
+function K.ResizeGrip(parent, limits, allowed, apply, reset)
     local outline = ns.NewFrame("Frame", nil, parent)
     outline:SetFrameStrata("DIALOG")
     outline:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
@@ -522,14 +764,41 @@ function K.ResizeGrip(parent, limits, allowed, apply)
         outline:Hide()
     end
     local grip = ns.NewFrame("Button", nil, parent)
-    grip:SetWidth(16); grip:SetHeight(16)
-    grip:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -4, 2)
-    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
-    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
-    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
-    grip:SetFrameLevel(parent:GetFrameLevel() + 30)
+    grip:SetWidth(22); grip:SetHeight(22)
+    grip:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -3, 15)
+    grip:SetFrameStrata("FULLSCREEN")
+    grip:RegisterForClicks("RightButtonUp")
+    grip:SetScript("OnClick", function(_, button)
+        if button == "RightButton" and reset and allowed() then reset() end
+    end)
+    grip.art = grip:CreateTexture(nil, "ARTWORK")
+    grip.art:SetAllPoints(grip); grip.art:SetTexture(K.theme.grip.art)
+    grip.art:SetVertexColor(unpack(K.theme.grip.color))
+    local glow = grip:CreateTexture(nil, "HIGHLIGHT")
+    glow:SetAllPoints(grip); glow:SetTexture(K.theme.grip.art); glow:SetBlendMode("ADD")
+    glow:SetVertexColor(unpack(K.theme.grip.lit)); glow:SetAlpha(0.35)
+    local screen = UIParent or parent
+    local badge = ns.NewFrame("Frame", nil, screen)
+    badge:SetFrameStrata("TOOLTIP"); badge:SetWidth(24); badge:SetHeight(24); badge:Hide()
+    local arrow = badge:CreateTexture(nil, "OVERLAY")
+    arrow:SetAllPoints(badge); arrow:SetTexture(K.theme.grip.cursor); arrow:SetTexCoord(0, 0.78125, 0, 0.78125)
+    badge:SetScript("OnUpdate", function(self)
+        if not GetCursorPosition or not SetCursor then return end
+        local scale = screen:GetEffectiveScale()
+        local x, y = GetCursorPosition()
+        self:ClearAllPoints(); self:SetPoint("CENTER", screen, "BOTTOMLEFT", x / scale, y / scale)
+        SetCursor(K.theme.grip.blank)
+    end)
+    badge:SetScript("OnHide", function() if ResetCursor then ResetCursor() end end)
+    grip.badge = badge
+    grip:HookScript("OnEnter", function(self) badge:Show(); self.art:SetVertexColor(unpack(K.theme.grip.lit)) end)
+    grip:HookScript("OnLeave", function(self)
+        if outline.active then return end
+        badge:Hide(); self.art:SetVertexColor(unpack(K.theme.grip.color))
+    end)
     grip:SetScript("OnMouseDown", function(_, button)
         if button ~= "LeftButton" or not allowed() then return end
+        grip.art:SetVertexColor(unpack(K.theme.grip.press))
         outline.x0, outline.y0 = cursor(parent)
         outline.width0, outline.height0 = parent:GetWidth(), parent:GetHeight()
         outline.width, outline.height = nil, nil
@@ -539,13 +808,16 @@ function K.ResizeGrip(parent, limits, allowed, apply)
         outline:Show()
         GameTooltip:Hide()
     end)
-    grip:SetScript("OnMouseUp", function()
+    grip:SetScript("OnMouseUp", function(self)
+        local over = self:IsMouseOver()
+        self.art:SetVertexColor(unpack(over and K.theme.grip.lit or K.theme.grip.color))
+        if not over then badge:Hide() end
         if not outline.active then return end
         local width, height = measure()
         stop()
         apply(width, height)
     end)
-    grip:SetScript("OnHide", stop)
+    grip:SetScript("OnHide", function() stop(); badge:Hide() end)
     K.Tooltip(grip, ns.T("windowResize"), ns.T("windowResizeTip"))
     grip.outline = outline
     return grip
@@ -603,16 +875,6 @@ function K.Menu(parent, entries, choose)
         button:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -8 - (i - 1) * 28)
         menu.buttons[i] = button
     end
-    return menu
-end
-function K.ProfessionModes(parent, profession, mode)
-    local menu = K.Menu(parent, {{key = "craft", labelKey = "professionCrafts"},
-        {key = "resale", labelKey = "vendorResaleCategory"}}, function(value)
-        ns.Trader.SetProfessionMode(profession(), value)
-    end)
-    menu.frame:SetWidth(100)
-    menu.frame:SetText(ns.T(mode == "resale" and "vendorResaleCategory" or "professionCrafts"))
-    menu.frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -3)
     return menu
 end
 function Picker:New(parent, choose)
@@ -755,12 +1017,12 @@ function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost, toggleHide
     row.frame.selected:SetDrawLayer("BORDER")
     row.match = row.frame:CreateTexture(nil, "BACKGROUND")
     row.match:SetAllPoints(row.frame); row.match:SetTexture(K.theme.white)
-    row.match:SetVertexColor(0.25, 0.75, 0.35, 0.16); row.match:Hide()
+    row.match:SetVertexColor(unpack(K.theme.match)); row.match:Hide()
     row.matchBar = row.frame:CreateTexture(nil, "BORDER")
     row.matchBar:SetPoint("TOPLEFT", row.frame, "TOPLEFT", 0, 0)
     row.matchBar:SetPoint("BOTTOMLEFT", row.frame, "BOTTOMLEFT", 0, 0)
-    row.matchBar:SetWidth(3); row.matchBar:SetTexture(K.theme.white)
-    row.matchBar:SetVertexColor(0.4, 1, 0.5, 1); row.matchBar:Hide()
+    row.matchBar:SetWidth(4); row.matchBar:SetTexture(K.theme.white)
+    row.matchBar:SetVertexColor(unpack(K.theme.positive)); row.matchBar:Hide()
     row.frame:SetHeight(30)
     row.frame.text:SetWidth(205)
     row.price = K.Label(row.frame, "", 240, -3, 120)
@@ -795,7 +1057,27 @@ function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost, toggleHide
         row.include:SetPoint("LEFT", row.frame, "LEFT", 0, 0)
         K.Tooltip(row.include, ns.T("craftIncludeCost"), ns.T("craftIncludeTip"))
     end
+    row.buttons = {row.refresh}
+    if row.hide then row.buttons[2] = row.hide end
+    row.frame:HookScript("OnEnter", function() row.hovered = true; row:Reveal() end)
+    row.frame:HookScript("OnLeave", function()
+        row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; row:Reveal()
+    end)
+    for _, button in ipairs(row.buttons) do
+        button:HookScript("OnLeave", function()
+            row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; row:Reveal()
+        end)
+    end
     return row
+end
+function MarketRow:Reveal()
+    local p = self.props
+    if not p then return end
+    local show = not p.reveal or self.hovered or p.active
+    if self.refreshWanted and show then self.refresh:Show() else self.refresh:Hide() end
+    if self.hide then
+        if self.hideWanted and show then self.hide:Show() else self.hide:Hide() end
+    end
 end
 function MarketRow:SetProps(props)
     self.props = props
@@ -810,8 +1092,8 @@ function MarketRow:Render()
         if p.hideable then
             self.hide:SetText(p.hideLabel or ns.T("hiddenHide"))
             K.Tooltip(self.hide, p.hideLabel or ns.T("hiddenHide"), ns.T(p.hidden and "hiddenRestoreTip" or "hiddenHideTip"))
-            self.hide:Show()
-        else self.hide:Hide() end
+            self.hideWanted = true
+        else self.hideWanted = false end
     end
     if p.match then self.match:Show(); self.matchBar:Show() else self.match:Hide(); self.matchBar:Hide() end
     if p.width then
@@ -861,7 +1143,8 @@ function MarketRow:Render()
     self.units:SetText(p.quote and tostring(p.quote.units) or ns.T("tradeNoPrice"))
     self.detail:SetText((p.detail or "") .. (p.quote and (p.quote.miss or 0) > 0 and ns.T("cacheIncomplete") or ""))
     self.detail:SetTextColor(unpack(K.theme.secondary))
-    if p.noRefresh or (p.quote and p.quote.vendor) then self.refresh:Hide() else self.refresh:Show() end
+    self.refreshWanted = not (p.noRefresh or (p.quote and p.quote.vendor))
+    self:Reveal()
     self.refresh:SetText(p.actionLabel or ns.T("tradeUpdate"))
     if p.actionDisabled then self.refresh:Disable() else self.refresh:Enable() end
     if p.actionTip then K.Tooltip(self.refresh, p.actionLabel, p.actionTip) end
@@ -936,8 +1219,6 @@ K.OutcomeList = OutcomeList
 function OutcomeList:New(parent)
     local view = setmetatable({cards = {}}, self)
     view.frame = ns.NewFrame("Frame", nil, parent)
-    view.frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, -172)
-    view.frame:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -10, 40)
     view.scroll = K.Scroller:New(view.frame, function() view:Render() end, 46)
     view.scroll.frame:SetAllPoints(view.frame)
     for i = 1, 4 do
@@ -947,6 +1228,7 @@ function OutcomeList:New(parent)
         card.back = card.frame:CreateTexture(nil, "BACKGROUND")
         card.back:SetAllPoints(card.frame); card.back:SetTexture(K.theme.white)
         card.back:SetVertexColor(unpack(K.theme.row))
+        card.frame.selected:SetDrawLayer("BORDER")
         card.icon, card.name = card.frame.icon, card.frame.text
         card.icon:SetWidth(34); card.icon:SetHeight(34)
         card.icon:ClearAllPoints(); card.icon:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 4, -4)
@@ -995,13 +1277,18 @@ function OutcomeList:Render()
             local color = output.chance >= 0.5 and K.theme.chart.added
                 or (output.chance >= 0.05 and K.theme.chart.supply or K.theme.chart.late)
             card.fill:SetVertexColor(unpack(color))
-            card.chance:SetText(string.format("%g%%", output.chance * 100))
+            card.chance:SetText(K.Chance(output.chance))
             card.line:SetWidth(math.max(40, width - 48))
-            card.line:SetText(ns.T("deCardLine", K.Money(output.price), string.format("%.3g", output.quantity),
-                K.Money(output.price and output.quantity * output.price)))
+            card.line:SetText(ns.T("deCardLine", (string.format("%.2f", output.quantity):gsub("%.", ",")),
+                K.MoneyShort(output.price), K.MoneyShort(output.price and output.quantity * output.price)))
             card.frame.extraTip = output.id == self.props.target and ns.T("deTargetOutcome") or ns.T("deOtherOutcome")
         else card.frame:Hide() end
     end
+end
+function K.Chance(chance)
+    local value = chance * 100
+    local text = value >= 10 and string.format("%.0f", value) or (string.format("%.1f", value):gsub("%.0$", ""))
+    return (text:gsub("%.", ",")) .. "%"
 end
 local Chart = {}
 Chart.__index = Chart
@@ -1112,7 +1399,7 @@ local function niceStep(value)
     end
     return 10 * power
 end
-local function zone()
+function K.DayShift()
     local now = time()
     local here, utc = date("*t", now), date("!*t", now)
     if type(here) ~= "table" or type(utc) ~= "table" then return 0 end
@@ -1153,7 +1440,7 @@ end
 function TimeChart:SetProps(props)
     self.props = props; self:Render()
 end
-function TimeChart:Rect(layer, color, x, y, w, h, alpha)
+function TimeChart:Rect(layer, color, x, y, w, h, alpha, gradient)
     local pool = self.pools[layer]
     pool.used = pool.used + 1
     local t = pool[pool.used]
@@ -1163,7 +1450,14 @@ function TimeChart:Rect(layer, color, x, y, w, h, alpha)
     end
     t:ClearAllPoints(); t:SetPoint("TOPLEFT", self.frame, "TOPLEFT", x, -y)
     t:SetWidth(math.max(1, w)); t:SetHeight(math.max(1, h))
-    t:SetVertexColor(color[1], color[2], color[3], (color[4] or 1) * (alpha or 1))
+    local a = (color[4] or 1) * (alpha or 1)
+    if gradient then
+        t:SetVertexColor(1, 1, 1, 1)
+        ns.Gradient(t, "VERTICAL", color[1], color[2], color[3], 0.02, color[1], color[2], color[3], a)
+    else
+        ns.Gradient(t, "VERTICAL", 1, 1, 1, 1, 1, 1, 1, 1)
+        t:SetVertexColor(color[1], color[2], color[3], a)
+    end
     t:Show()
     return t
 end
@@ -1191,9 +1485,10 @@ function TimeChart:Render()
     local width, height = self.frame:GetWidth() or 0, self.frame:GetHeight() or 0
     self.empty:SetText(p.empty or "")
     if p.empty or width < 160 or height < 90 then return end
-    local gutter, plot = 72, width - 80
-    local count = math.max(8, math.min(120, math.floor(plot / 7)))
-    local layout = {gutter = gutter, plot = plot, count = count, slot = plot / count,
+    local gutter, axis = 8, 72
+    local plot = width - gutter - axis
+    local count = math.max(8, math.min(120, math.floor(plot / 6)))
+    local layout = {gutter = gutter, plot = plot, axis = gutter + plot, axisWidth = axis, count = count, slot = plot / count,
         buckets = p.buckets(count), boxes = {}, span = math.max(1, p.to - p.from)}
     self.layout = layout
     local total, gap, top = 0, 8, 0
@@ -1204,7 +1499,7 @@ function TimeChart:Render()
         local box = {track = track, top = top + 16, height = h - 16}
         layout.boxes[#layout.boxes + 1] = box
         self:Header(box)
-        if track.kind == "steps" then self:Steps(box) elseif track.kind == "bars" then self:Bars(box) else self:Flow(box) end
+        if track.kind == "price" then self:Price(box) elseif track.kind == "bars" then self:Bars(box) else self:Flow(box) end
         top = top + h + gap
     end
     layout.bottom = top - gap
@@ -1213,10 +1508,15 @@ end
 function TimeChart:Header(box)
     local track, x = box.track, self.layout.gutter
     local title = self:Text(track.title, x, box.top - 15, 200, "LEFT", K.theme.text)
-    x = x + math.min(200, title:GetStringWidth() or 120) + 14
+    x = x + math.min(200, title:GetStringWidth() or 120) + 10
+    if track.change then
+        local change = self:Text(track.change, x, box.top - 15, 140, "LEFT", K.theme[track.tone or "secondary"])
+        x = x + math.min(140, change:GetStringWidth() or 60) + 14
+    end
     local legend = {}
     for _, series in ipairs(track.series) do legend[#legend + 1] = series end
     for _, series in ipairs(track.down or {}) do legend[#legend + 1] = series end
+    for _, series in ipairs(track.extraLegend or {}) do legend[#legend + 1] = series end
     if track.median then legend[#legend + 1] = {color = K.theme.chart.median, legend = track.medianLegend} end
     for _, series in ipairs(legend) do
         if series.legend then
@@ -1232,23 +1532,33 @@ function TimeChart:Grid(box, low, high, step)
     while value <= high + step * 0.001 do
         local y = box.scale(value)
         self:Rect("BACKGROUND", K.theme.chart.grid, layout.gutter, y, layout.plot, 1)
-        self:Text(box.track.format(value), 0, y - 6, layout.gutter - 8, "RIGHT")
+        self:Text(box.track.format(value), layout.axis + 6, y - 6, layout.axisWidth - 8, "LEFT")
         value = value + step
     end
-    self:Rect("BACKGROUND", K.theme.chart.axis, layout.gutter - 1, box.top, 1, box.height)
+    self:Rect("BACKGROUND", K.theme.chart.axis, layout.axis, box.top, 1, box.height)
 end
 function TimeChart:Center(i)
     return self.layout.gutter + (i - 0.5) * self.layout.slot
 end
-function TimeChart:Steps(box)
-    local layout, track = self.layout, box.track
+function TimeChart:Price(box)
+    local layout, track, p = self.layout, box.track, self.props
+    local candles = p.mode == "candles" and p.candles and p.candles() or nil
+    if candles and #candles == 0 then candles = nil end
     local low, high
-    for i = 1, layout.count do
-        local b = layout.buckets[i]
-        for _, series in ipairs(b and track.series or {}) do
-            local v = b[series.field]
-            if v then low, high = math.min(low or v, v), math.max(high or v, v) end
+    local function widen(value)
+        if value then low, high = math.min(low or value, value), math.max(high or value, value) end
+    end
+    if candles then
+        for _, candle in ipairs(candles) do widen(candle.low); widen(candle.high) end
+    else
+        for i = 1, layout.count do
+            local b = layout.buckets[i]
+            for _, series in ipairs(b and track.series or {}) do widen(b[series.field]) end
         end
+    end
+    for _, reference in ipairs(track.references or {}) do widen(reference.value) end
+    for _, marker in ipairs(track.markers or {}) do
+        if marker.at >= p.from and marker.at <= p.to then widen(marker.value) end
     end
     if not low then return end
     if high - low < math.max(1, high * 0.02) then low, high = low * 0.95, high * 1.05 + 1 end
@@ -1260,24 +1570,54 @@ function TimeChart:Steps(box)
     if track.median then
         self:Rect("BORDER", K.theme.chart.median, layout.gutter, box.scale(track.median), layout.plot, 1)
     end
+    for _, reference in ipairs(track.references or {}) do
+        local y = box.scale(reference.value)
+        for x = layout.gutter, layout.gutter + layout.plot - 4, 10 do
+            self:Rect("BORDER", reference.color, x, y, 5, 1)
+        end
+    end
+    if candles then self:Candles(box, candles) else self:Lines(box) end
+    for _, marker in ipairs(track.markers or {}) do
+        if marker.at >= p.from and marker.at <= p.to then
+            local x = layout.gutter + (marker.at - p.from) / layout.span * layout.plot
+            x = math.max(layout.gutter + 3, math.min(layout.gutter + layout.plot - 3, x))
+            self:Rect("ARTWORK", marker.color, x - 3, box.scale(marker.value) - 3, 6, 6)
+        end
+    end
+    if track.last then
+        local y = math.max(box.top + 7, math.min(base - 7, box.scale(track.last)))
+        self:Rect("ARTWORK", K.theme.chart.shade, layout.axis + 2, y - 7, layout.axisWidth - 4, 14, 0.9)
+        self:Rect("ARTWORK", K.theme[track.tone or "text"], layout.axis, y, 4, 1)
+        self:Text(track.format(track.last), layout.axis + 6, y - 6, layout.axisWidth - 8, "LEFT", K.theme[track.tone or "text"])
+    end
+end
+function TimeChart:Segment(box, series, x0, y0, x1, y1, dim)
+    local thick, base = series.thick or 2, box.top + box.height
+    local x, dx = x0, math.max(1, x1 - x0)
+    while x < x1 do
+        local w = math.min(2, x1 - x)
+        local ya = y0 + (y1 - y0) * (x - x0) / dx
+        local yb = y0 + (y1 - y0) * (x + w - x0) / dx
+        local top = math.min(ya, yb) - thick / 2
+        self:Rect("ARTWORK", series.color, x, top, w, math.abs(yb - ya) + thick, dim and 0.35 or 1)
+        if series.area and base - top - thick > 1 then
+            self:Rect("BORDER", series.color, x, top + thick, w, base - top - thick, dim and 0.08 or 0.28, true)
+        end
+        x = x + w
+    end
+end
+function TimeChart:Lines(box)
+    local layout, track = self.layout, box.track
     local limit = math.max(1, math.ceil(43200 / (layout.span / layout.count)))
     for _, series in ipairs(track.series) do
-        local thick, last, lastValue = series.thick or 2, nil, nil
-        local function hold(index, x1, value, dim)
-            local x0, y = self:Center(index), box.scale(value)
-            if series.area then self:Rect("BORDER", series.color, x0, y, x1 - x0, base - y, dim and 0.05 or 0.13) end
-            self:Rect("ARTWORK", series.color, x0, y - thick / 2, x1 - x0 + thick / 2, thick, dim and 0.35 or 1)
-        end
+        local last, lastValue
         for i = 1, layout.count do
             local b = layout.buckets[i]
             local value = b and b[series.field]
             if value then
                 if last then
-                    local x, y0, y1 = self:Center(i), box.scale(lastValue), box.scale(value)
-                    local dim = i - last > limit
-                    hold(last, x, lastValue, dim)
-                    self:Rect("ARTWORK", series.color, x - thick / 2, math.min(y0, y1) - thick / 2, thick,
-                        math.abs(y1 - y0) + thick, dim and 0.35 or 1)
+                    self:Segment(box, series, self:Center(last), box.scale(lastValue), self:Center(i), box.scale(value),
+                        i - last > limit)
                 end
                 if series.dots and layout.slot >= 4 then
                     self:Rect("ARTWORK", series.color, self:Center(i) - 2, box.scale(value) - 2, 4, 4)
@@ -1285,7 +1625,22 @@ function TimeChart:Steps(box)
                 last, lastValue = i, value
             end
         end
-        if last then hold(last, layout.gutter + layout.plot, lastValue, true) end
+        if last and last < layout.count then
+            self:Segment(box, series, self:Center(last), box.scale(lastValue), layout.gutter + layout.plot,
+                box.scale(lastValue), true)
+        end
+    end
+end
+function TimeChart:Candles(box, candles)
+    local layout, p = self.layout, self.props
+    local width = math.max(3, math.min(12, math.floor(layout.plot / math.max(1, p.days or 7) * 0.6)))
+    for _, candle in ipairs(candles) do
+        local x = layout.gutter + (candle.at - p.from) / layout.span * layout.plot
+        x = math.max(layout.gutter + width / 2, math.min(layout.gutter + layout.plot - width / 2, x))
+        local color = K.theme[candle.close >= candle.open and "positive" or "negative"]
+        local top, bottom = box.scale(math.max(candle.open, candle.close)), box.scale(math.min(candle.open, candle.close))
+        self:Rect("ARTWORK", color, x - width / 2, top, width, math.max(1, bottom - top))
+        self:Rect("BORDER", color, x - 0.5, box.scale(candle.high), 1, math.max(1, box.scale(candle.low) - box.scale(candle.high)))
     end
 end
 function TimeChart:Bars(box)
@@ -1353,7 +1708,7 @@ function TimeChart:Ruler()
     for _, value in ipairs(timeSteps) do
         if layout.span / value <= slots then step = value; break end
     end
-    local shift = zone()
+    local shift = K.DayShift()
     local t = math.ceil((p.from + shift) / step) * step - shift
     while t <= p.to do
         local x = layout.gutter + (t - p.from) / layout.span * layout.plot
@@ -1368,6 +1723,22 @@ function TimeChart:Hover()
     if not layout then return end
     local cursor = GetCursorPosition()
     local x = cursor / (self.frame:GetEffectiveScale() or 1) - (self.frame:GetLeft() or 0)
+    for _, box in ipairs(layout.boxes) do
+        for index, marker in ipairs(box.scale and box.track.markers or {}) do
+            local px = layout.gutter + (marker.at - self.props.from) / layout.span * layout.plot
+            if marker.at >= self.props.from and marker.at <= self.props.to and math.abs(x - px) <= 7 and self.props.markerTip then
+                local key = "marker:" .. index
+                if self.hovered == key then return end
+                self:Unhover(); self.hovered = key
+                self.anchor:ClearAllPoints(); self.anchor:SetPoint("TOPLEFT", self.frame, "TOPLEFT", px, -box.scale(marker.value))
+                GameTooltip:SetOwner(self.anchor, "ANCHOR_RIGHT")
+                local title, body = self.props.markerTip(marker)
+                GameTooltip:AddLine(title, unpack(K.theme.gold))
+                GameTooltip:AddLine(body, unpack(K.theme.text)); GameTooltip:Show()
+                return
+            end
+        end
+    end
     local index = math.floor((x - layout.gutter) / layout.slot) + 1
     if index < 1 or index > layout.count then self:Unhover(); return end
     local found
@@ -1388,7 +1759,7 @@ function TimeChart:Hover()
     self.stampText:SetText(date("%d.%m %H:%M", bucket.at)); self.stamp:Show(); self.stampText:Show()
     local used = 0
     for _, box in ipairs(layout.boxes) do
-        for _, series in ipairs(box.track.kind == "steps" and box.scale and box.track.series or {}) do
+        for _, series in ipairs(box.track.kind == "price" and box.scale and self.props.mode ~= "candles" and box.track.series or {}) do
             local value = bucket[series.field]
             if value then
                 used = used + 1
@@ -1424,4 +1795,1035 @@ function TimeChart:Unhover()
     self.cursor:Hide(); self.stamp:Hide(); self.stampText:Hide()
     for _, dot in ipairs(self.dots) do dot:Hide() end
     if GameTooltip:IsOwned(self.anchor) then GameTooltip:Hide() end
+end
+function K.Modal(parent, name)
+    local dim = ns.NewFrame("Frame", name, parent)
+    dim:SetAllPoints(parent)
+    dim:SetFrameStrata("DIALOG")
+    dim:SetFrameLevel(parent:GetFrameLevel() + 40)
+    dim:EnableMouse(true)
+    local shade = dim:CreateTexture(nil, "BACKGROUND")
+    shade:SetAllPoints(dim); shade:SetTexture(K.theme.white); shade:SetVertexColor(0, 0, 0, 0.62)
+    local window = ns.NewFrame("Frame", nil, dim)
+    window:SetPoint("CENTER", dim, "CENTER", 0, 0)
+    window:EnableMouse(true)
+    K.Panel(window)
+    dim.window = window
+    dim.close = ns.NewFrame("Button", nil, window, "UIPanelCloseButton")
+    dim.close:SetPoint("TOPRIGHT", window, "TOPRIGHT", -2, -2)
+    dim.close:SetScript("OnClick", function() dim:Hide() end)
+    dim.Layout = function(self)
+        local width = math.max(600, math.min(940, (parent:GetWidth() or 996) - 40))
+        local height = math.max(380, math.min(580, (parent:GetHeight() or 540) - 40))
+        window:SetWidth(width); window:SetHeight(height)
+    end
+    dim:SetScript("OnShow", function(self) self:Layout() end)
+    dim:Layout()
+    dim:Hide()
+    if type(UISpecialFrames) == "table" then tinsert(UISpecialFrames, name) end
+    return dim
+end
+function K.DisenchantColumns(width, target, refresh)
+    local action, level, price, margin, rate = refresh and 128 or 62, 40, 86, 92, 58
+    local via, viaRate = target and 88 or 0, target and 70 or 0
+    local rest = width - action - level - price - margin - rate - via - viaRate
+    if target and rest < 200 then rest, viaRate = rest + viaRate, 0 end
+    if target and rest < 200 then rest, via = rest + via, 0 end
+    local columns, x = {item = {0, rest}}, rest
+    for _, column in ipairs({{"ilvl", level}, {"price", price}, {"margin", margin}, {"rate", rate},
+        {"via", via}, {"viaRate", viaRate}}) do
+        if column[2] > 0 then columns[column[1]] = {x, column[2]}; x = x + column[2] end
+    end
+    columns.action = {x, action}
+    return columns
+end
+local GroupRow = {}
+GroupRow.__index = GroupRow
+K.GroupRow = GroupRow
+function GroupRow:New(parent, toggle)
+    local row = setmetatable({}, self)
+    row.frame = ns.NewFrame("Button", nil, parent)
+    row.frame:SetHeight(30)
+    row.back = row.frame:CreateTexture(nil, "BACKGROUND")
+    row.back:SetAllPoints(row.frame); row.back:SetTexture(K.theme.white)
+    row.back:SetVertexColor(unpack(K.theme.group))
+    local hover = row.frame:CreateTexture(nil, "HIGHLIGHT")
+    hover:SetAllPoints(row.frame); hover:SetTexture(K.theme.white)
+    hover:SetVertexColor(unpack(K.theme.hover)); row.frame:SetHighlightTexture(hover)
+    row.caret = K.Label(row.frame, "", 8, -6, 12, "secondary")
+    row.caret:ClearAllPoints(); row.caret:SetPoint("LEFT", row.frame, "LEFT", 8, 0)
+    row.name = K.Label(row.frame, "", 22, -6, 200)
+    row.name:SetHeight(12)
+    row.name:ClearAllPoints(); row.name:SetPoint("LEFT", row.frame, "LEFT", 22, 0)
+    row.detail = K.Label(row.frame, "", 0, -6, 300, "secondary")
+    row.detail:SetHeight(12)
+    row.detail:ClearAllPoints(); row.detail:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
+    row.tag = K.Label(row.frame, "", 0, -6, 180, "secondary")
+    row.tag:SetHeight(12); row.tag:SetJustifyH("RIGHT")
+    row.tag:ClearAllPoints(); row.tag:SetPoint("RIGHT", row.frame, "RIGHT", -8, 0)
+    row.frame:SetScript("OnClick", function() toggle(row.props.key) end)
+    row.buttons = {}
+    for i = 1, 3 do
+        local button = K.Button(row.frame, "", 60, function()
+            local action = row.props.actions and row.props.actions[i]
+            if action then action.fn(row.props.key, row.props) end
+        end, "quiet")
+        button:SetHeight(20)
+        button:Hide()
+        row.buttons[i] = button
+    end
+    row.buttons[3]:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
+    row.buttons[2]:SetPoint("RIGHT", row.buttons[3], "LEFT", -3, 0)
+    row.buttons[1]:SetPoint("RIGHT", row.buttons[2], "LEFT", -3, 0)
+    K.HookReveal(row)
+    return row
+end
+function GroupRow:SetProps(props)
+    self.props = props; self:Render()
+end
+function GroupRow:Render()
+    local p = self.props
+    self.frame:SetWidth(p.width)
+    if p.sub then self.frame:SetHeight(20) elseif p.height then self.frame:SetHeight(p.height) end
+    self.back:SetVertexColor(unpack(K.theme[p.sub and "subgroup" or "group"]))
+    local reserve = (p.actionWidth or 0) + 8
+    if p.sub then
+        self.caret:Hide(); self.name:Hide()
+        self.detail:ClearAllPoints(); self.detail:SetPoint("LEFT", self.frame, "LEFT", 22, 0)
+        self.detail:SetWidth(math.max(40, p.width - 30))
+    else
+        self.caret:Show(); self.name:Show()
+        self.caret:SetText(p.open and "-" or "+")
+        self.name:SetWidth(300)
+        self.name:SetText(p.name)
+        self.name:SetWidth(math.min(240, math.max(40, (self.name:GetStringWidth() or 120) + 4)))
+        self.detail:ClearAllPoints(); self.detail:SetPoint("LEFT", self.name, "RIGHT", 6, 0)
+        self.detail:SetWidth(math.max(40, p.width - 60 - reserve - 120 - (self.name:GetWidth() or 120)))
+    end
+    self.detail:SetText(p.detail or "")
+    self.tag:ClearAllPoints(); self.tag:SetPoint("RIGHT", self.frame, "RIGHT", -reserve, 0)
+    self.tag:SetText(p.sub and "" or (p.tag or ""))
+    self.tag:SetTextColor(unpack(K.theme[p.tone or "secondary"]))
+    K.Tooltip(self.frame, p.name or "", p.tip or "")
+    K.PlaceActions(self)
+    K.RevealActions(self)
+    self.frame:Show()
+end
+local DRow = {}
+DRow.__index = DRow
+K.DisenchantRow = DRow
+function DRow:New(parent, select, buy, refresh)
+    local row = setmetatable({}, self)
+    row.frame = K.ItemChoice(parent, function() select(row.props.id) end)
+    row.frame:SetHeight(24)
+    row.frame.selected:SetDrawLayer("BORDER")
+    parent.disenchantRowCount = (rawget(parent, "disenchantRowCount") or 0) + 1
+    row.stripe = row.frame:CreateTexture(nil, "BACKGROUND")
+    row.stripe:SetAllPoints(row.frame); row.stripe:SetTexture(K.theme.white)
+    row.stripe:SetVertexColor(unpack(K.theme.row))
+    if parent.disenchantRowCount % 2 == 0 then row.stripe:Hide() end
+    row.match = row.frame:CreateTexture(nil, "BACKGROUND")
+    row.match:SetAllPoints(row.frame); row.match:SetTexture(K.theme.white)
+    row.match:SetVertexColor(unpack(K.theme.match)); row.match:Hide()
+    row.matchBar = row.frame:CreateTexture(nil, "BORDER")
+    row.matchBar:SetPoint("TOPLEFT", row.frame, "TOPLEFT", 0, 0)
+    row.matchBar:SetPoint("BOTTOMLEFT", row.frame, "BOTTOMLEFT", 0, 0)
+    row.matchBar:SetWidth(4); row.matchBar:SetTexture(K.theme.white)
+    row.matchBar:SetVertexColor(unpack(K.theme.positive)); row.matchBar:Hide()
+    row.frame.icon:ClearAllPoints(); row.frame.icon:SetPoint("LEFT", row.frame, "LEFT", 8, 0)
+    row.frame.icon:SetWidth(18); row.frame.icon:SetHeight(18)
+    row.frame.text:ClearAllPoints(); row.frame.text:SetPoint("LEFT", row.frame, "LEFT", 32, 0)
+    row.frame.text:SetHeight(12)
+    row.cells = {}
+    for _, key in ipairs({"ilvl", "price", "margin", "rate", "via", "viaRate"}) do
+        local cell = K.Label(row.frame, "", 0, -6, 80, (key == "ilvl" or key == "rate") and "secondary" or nil)
+        cell:SetHeight(12); cell:SetJustifyH("RIGHT")
+        row.cells[key] = cell
+    end
+    row.buy = K.Button(row.frame, ns.T("deBuyRow"), 58, function() buy(row.props.id) end, "quiet")
+    row.buy:SetHeight(20)
+    row.buy:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
+    K.Tooltip(row.buy, ns.T("deBuyRow"), ns.T("deBuyRowTip"))
+    if refresh then
+        row.refresh = K.Button(row.frame, ns.T("tradeUpdate"), 62, function() refresh(row.props.id) end, "quiet")
+        row.refresh:SetHeight(20)
+        row.refresh:SetPoint("RIGHT", row.buy, "LEFT", -3, 0)
+        K.Tooltip(row.refresh, ns.T("tradeUpdate"), ns.T("deRefreshRowTip"))
+        row.refresh:HookScript("OnLeave", function()
+            row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; row:Reveal()
+        end)
+    end
+    row.frame:HookScript("OnEnter", function() row.hovered = true; row:Reveal() end)
+    row.frame:HookScript("OnLeave", function()
+        row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; row:Reveal()
+    end)
+    row.buy:HookScript("OnLeave", function()
+        row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; row:Reveal()
+    end)
+    return row
+end
+function DRow:Reveal()
+    local show = self.props and (self.hovered or self.props.active)
+    if show and self.props.action ~= false then self.buy:Show() else self.buy:Hide() end
+    if self.refresh then
+        if show then self.refresh:Show() else self.refresh:Hide() end
+    end
+end
+function DRow:SetProps(props)
+    self.props = props; self:Render()
+end
+function DRow:Render()
+    local p = self.props
+    local columns = K.DisenchantColumns(p.width, p.target, self.refresh ~= nil)
+    self.frame:SetWidth(p.width)
+    K.SetItemChoice(self.frame, p.id, p.active, p.quality)
+    self.frame.extraTip = p.tip
+    self.frame.text:SetWidth(math.max(40, columns.item[2] - 38))
+    for key, cell in pairs(self.cells) do
+        local column = columns[key]
+        cell:ClearAllPoints()
+        if column then
+            cell:SetPoint("LEFT", self.frame, "LEFT", column[1], 0)
+            cell:SetWidth(column[2] - 6); cell:Show()
+        else cell:Hide() end
+    end
+    self.cells.ilvl:SetText(p.level and tostring(p.level) or "")
+    self.cells.price:SetText(K.Money(p.cost))
+    self.cells.margin:SetText(K.Money(p.margin))
+    self.cells.margin:SetTextColor(unpack(K.theme[p.margin and (p.margin > 0 and "positive" or "negative") or "text"]))
+    self.cells.rate:SetText(p.percent and ns.T("deMarginRate", p.percent) or "")
+    self.cells.via:SetText(p.via and K.Money(p.via) or "")
+    self.cells.viaRate:SetText(p.viaRate and ns.T("deViaShort", p.viaRate) or "")
+    self.cells.viaRate:SetTextColor(unpack(K.theme[p.viaRate and (p.viaRate < 0 and "positive" or "negative") or "secondary"]))
+    if p.match then self.match:Show(); self.matchBar:Show() else self.match:Hide(); self.matchBar:Hide() end
+    if p.actionDisabled then self.buy:Disable() else self.buy:Enable() end
+    if self.refresh then
+        if p.refreshDisabled then self.refresh:Disable() else self.refresh:Enable() end
+    end
+    self:Reveal()
+end
+function K.CraftColumns(width)
+    local action = width >= 760 and 198 or 134
+    local price, margin, units = 86, 92, 48
+    local state = width >= 820 and 72 or 0
+    local best = width >= 960 and 180 or 0
+    local item = width - action - price - margin - units - state - best
+    local columns, x = {item = {0, item}}, item
+    columns.price = {x, price}; x = x + price
+    if best > 0 then columns.best = {x, best}; x = x + best end
+    columns.margin = {x, margin}; x = x + margin
+    columns.units = {x, units}; x = x + units
+    if state > 0 then columns.state = {x, state}; x = x + state end
+    columns.action = {x, action}
+    return columns
+end
+function K.PlaceActions(row)
+    local actions = row.props and row.props.actions or {}
+    local right
+    for i = #actions, 1, -1 do
+        local button = row.buttons[i]
+        if button then
+            button:SetWidth(actions[i].width or 60)
+            button:ClearAllPoints()
+            if right then button:SetPoint("RIGHT", right, "LEFT", -3, 0)
+            else button:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0) end
+            right = button
+        end
+    end
+end
+function K.RevealActions(row)
+    local p = row.props
+    local show = p and (row.hovered or p.active)
+    for i, button in ipairs(row.buttons) do
+        local action = p and p.actions and p.actions[i]
+        if action and show then
+            button:SetText(action.label)
+            if action.disabled then button:Disable() else button:Enable() end
+            if action.tip then K.Tooltip(button, action.label, action.tip) end
+            button:Show()
+        else button:Hide() end
+    end
+end
+function K.HookReveal(row)
+    row.frame:HookScript("OnEnter", function() row.hovered = true; K.RevealActions(row) end)
+    row.frame:HookScript("OnLeave", function()
+        row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; K.RevealActions(row)
+    end)
+    for _, button in ipairs(row.buttons) do
+        button:HookScript("OnLeave", function()
+            row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; K.RevealActions(row)
+        end)
+    end
+end
+local CraftRow = {}
+CraftRow.__index = CraftRow
+K.CraftRow = CraftRow
+function CraftRow:New(parent, select, expand)
+    local row = setmetatable({buttons = {}}, self)
+    row.frame = K.ItemChoice(parent, function() select(row.props.id, row.props) end)
+    row.frame:SetHeight(30)
+    row.frame.selected:SetDrawLayer("BORDER")
+    parent.craftRowCount = (rawget(parent, "craftRowCount") or 0) + 1
+    row.stripe = row.frame:CreateTexture(nil, "BACKGROUND")
+    row.stripe:SetAllPoints(row.frame); row.stripe:SetTexture(K.theme.white)
+    row.stripe:SetVertexColor(unpack(K.theme.row))
+    if parent.craftRowCount % 2 == 0 then row.stripe:Hide() end
+    row.expand = K.Button(row.frame, "+", 18, function() expand(row.props.id, row.props) end, "quiet")
+    row.expand:SetHeight(18)
+    row.expand.text:ClearAllPoints(); row.expand.text:SetPoint("CENTER", row.expand, "CENTER", 0, 0)
+    row.frame.icon:SetWidth(22); row.frame.icon:SetHeight(22)
+    row.frame.text:SetHeight(12)
+    row.cross = K.Label(row.frame, "x", 0, 0, 10)
+    row.cross:SetHeight(12); row.cross:SetTextColor(unpack(K.theme.negative)); row.cross:Hide()
+    row.detail = K.Label(row.frame, "", 0, -16, 200, "secondary"); row.detail:SetHeight(12)
+    row.cells = {}
+    for _, key in ipairs({"price", "best", "margin", "units", "state"}) do
+        local cell = K.Label(row.frame, "", 0, -3, 80); cell:SetHeight(12); cell:SetJustifyH("RIGHT")
+        row.cells[key] = cell
+    end
+    row.bestNote = K.Label(row.frame, "", 0, -16, 80, "secondary"); row.bestNote:SetHeight(12); row.bestNote:SetJustifyH("RIGHT")
+    row.marginRate = K.Label(row.frame, "", 0, -16, 80, "secondary"); row.marginRate:SetHeight(12); row.marginRate:SetJustifyH("RIGHT")
+    row.arrow = row.frame:CreateTexture(nil, "ARTWORK")
+    row.arrow:SetTexture("Interface\\Buttons\\UI-SortArrow"); row.arrow:SetWidth(9); row.arrow:SetHeight(9)
+    row.change = K.Label(row.frame, "", 0, -16, 70, "secondary"); row.change:SetHeight(12); row.change:SetJustifyH("RIGHT")
+    for i = 1, 3 do
+        local button = K.Button(row.frame, "", 60, function()
+            local action = row.props.actions and row.props.actions[i]
+            if action then action.fn(row.props.id, row.props) end
+        end, "quiet")
+        button:SetHeight(20)
+        button:Hide()
+        row.buttons[i] = button
+    end
+    row.buttons[3]:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
+    row.buttons[2]:SetPoint("RIGHT", row.buttons[3], "LEFT", -3, 0)
+    row.buttons[1]:SetPoint("RIGHT", row.buttons[2], "LEFT", -3, 0)
+    K.HookReveal(row)
+    return row
+end
+function CraftRow:SetProps(props)
+    self.props = props; self:Render()
+end
+function CraftRow:Render()
+    local p = self.props
+    local columns = K.CraftColumns(p.width)
+    local offset = 26 + (p.depth or 0) * 14
+    self.frame:SetWidth(p.width)
+    K.SetItemChoice(self.frame, p.id, p.active, p.quality)
+    self.frame.extraTip = p.tip
+    self.frame.icon:ClearAllPoints(); self.frame.icon:SetPoint("LEFT", self.frame, "LEFT", offset, 0)
+    self.frame.text:ClearAllPoints(); self.frame.text:SetPoint("TOPLEFT", self.frame, "TOPLEFT", offset + 26, -3)
+    self.frame.text:SetWidth(math.max(40, columns.item[2] - offset - 30))
+    if p.unlearned then
+        self.frame.text:SetTextColor(unpack(K.theme.off))
+        self.cross:ClearAllPoints(); self.cross:SetPoint("LEFT", self.frame, "LEFT", offset - 12, 0); self.cross:Show()
+    else self.cross:Hide() end
+    self.detail:ClearAllPoints(); self.detail:SetPoint("TOPLEFT", self.frame, "TOPLEFT", offset + 26, -16)
+    self.detail:SetWidth(math.max(40, columns.item[2] - offset - 30))
+    self.detail:SetText(p.detail or "")
+    self.expand:ClearAllPoints(); self.expand:SetPoint("LEFT", self.frame, "LEFT", offset - 22, 0)
+    self.expand:SetText(p.opened and "-" or "+")
+    if p.expandable then self.expand:Show() else self.expand:Hide() end
+    for key, cell in pairs(self.cells) do
+        local column = columns[key]
+        cell:ClearAllPoints()
+        if column then
+            cell:SetPoint("TOPLEFT", self.frame, "TOPLEFT", column[1], (key == "units" or key == "state") and -9 or -3)
+            cell:SetWidth(column[2] - 6); cell:Show()
+        else cell:Hide() end
+    end
+    self.cells.price:SetText(K.Money(p.price))
+    self.change:ClearAllPoints(); self.change:SetPoint("TOPLEFT", self.frame, "TOPLEFT", columns.price[1], -16)
+    self.change:SetWidth(columns.price[2] - 6)
+    if p.change then
+        local up = p.change >= 0
+        self.change:SetText(ns.T("craftChange", math.abs(p.change)))
+        self.change:SetTextColor(unpack(K.theme[up and "positive" or "negative"]))
+        self.arrow:ClearAllPoints(); self.arrow:SetPoint("RIGHT", self.change, "LEFT", -1, 0)
+        if up then self.arrow:SetTexCoord(0, 0.5625, 1, 0) else self.arrow:SetTexCoord(0, 0.5625, 0, 1) end
+        self.arrow:SetVertexColor(unpack(K.theme[up and "positive" or "negative"]))
+        self.arrow:Show(); self.change:Show()
+    else self.arrow:Hide(); self.change:Hide() end
+    if columns.best then
+        self.cells.best:SetText(p.best and ns.Markets.Name(p.best) or "")
+        self.cells.best:SetJustifyH("LEFT")
+        self.bestNote:ClearAllPoints(); self.bestNote:SetPoint("TOPLEFT", self.frame, "TOPLEFT", columns.best[1], -16)
+        self.bestNote:SetWidth(columns.best[2] - 6); self.bestNote:SetJustifyH("LEFT")
+        self.bestNote:SetText(p.best and K.Money(p.bestPrice) or ""); self.bestNote:Show()
+    else self.bestNote:Hide() end
+    self.cells.margin:SetText(K.Money(p.margin))
+    self.cells.margin:SetTextColor(unpack(K.theme[p.margin and (p.margin > 0 and "positive" or "negative") or "text"]))
+    self.marginRate:ClearAllPoints(); self.marginRate:SetPoint("TOPLEFT", self.frame, "TOPLEFT", columns.margin[1], -16)
+    self.marginRate:SetWidth(columns.margin[2] - 6)
+    self.marginRate:SetText(p.percent and ns.T("deMarginRate", p.percent) or "")
+    self.cells.units:SetText(p.units and tostring(p.units) or ns.T("tradeNoPrice"))
+    self.cells.state:SetText(p.state or "")
+    self.cells.state:SetTextColor(unpack(K.theme[p.stateTone or "secondary"]))
+    K.PlaceActions(self)
+    K.RevealActions(self)
+    self.frame:Show()
+end
+local Batch = {}
+Batch.__index = Batch
+K.BatchPanel = Batch
+local batchSerial = 0
+function Batch:Wheel(delta)
+    if ScrollFrameTemplate_OnMouseWheel then ScrollFrameTemplate_OnMouseWheel(self.frame, delta) end
+end
+function Batch:Scrollable(frame)
+    frame:EnableMouseWheel(true)
+    frame:SetScript("OnMouseWheel", function(_, delta) self:Wheel(delta) end)
+end
+function Batch:New(parent)
+    batchSerial = batchSerial + 1
+    local panel = setmetatable({rows = {}, queue = 1}, self)
+    panel.frame = ns.NewFrame("ScrollFrame", "ManaCodeBatchScroll" .. batchSerial, parent, "UIPanelScrollFrameTemplate")
+    panel.frame.scrollBarHideable = 1
+    panel.child = ns.NewFrame("Frame", nil, panel.frame)
+    panel.child:SetWidth(220); panel.child:SetHeight(400)
+    panel.frame:SetScrollChild(panel.child)
+    panel:Scrollable(panel.child)
+    local c = panel.child
+    panel.title = K.Label(c, ns.T("batchTitle"), 0, 0, 200, "heading"); panel.title:SetHeight(14)
+    panel.info = K.Button(c, ns.T("tradeInfo"), 22, function() end, "quiet")
+    panel.info:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, 0)
+    K.Tooltip(panel.info, ns.T("batchTitle"), ns.T("batchTip"))
+    panel.status = K.Label(c, "", 0, -18, 220, "secondary"); panel.status:SetHeight(12)
+    panel.sourceChip = K.Chip(c, ns.T("batchMakeChip"), function(checked) panel:Emit("craftAll", checked) end)
+    K.Tooltip(panel.sourceChip, ns.T("craftMaterialSource"), ns.T("craftTreeTip"))
+    panel.ownedChip = K.Chip(c, ns.T("batchOwnedChip"), function(checked) panel:Emit("owned", checked) end)
+    K.Tooltip(panel.ownedChip, ns.T("craftOwnedTitle"), ns.T("craftOwnedTip"))
+    panel.quantityLabel = K.Label(c, ns.T("batchQuantity"), 0, 0, 80, "secondary"); panel.quantityLabel:SetHeight(12)
+    panel.quantity = K.Edit(c, 56)
+    panel.quantity:SetNumeric(true); panel.quantity:SetMaxLetters(6)
+    K.Tooltip(panel.quantity, ns.T("craftQuantity"), ns.T("craftQuantityTip"))
+    K.LiveEdit(panel.quantity, function(edit)
+        local value = tonumber(edit:GetText())
+        if value and value >= 1 and value <= 100000 then panel:Emit("quantity", value)
+        else edit:SetText(tostring(panel.plan and panel.plan.requested or 1)) end
+    end)
+    panel.crafts = K.Label(c, "", 0, 0, 90, "secondary"); panel.crafts:SetHeight(12)
+    local steps = {}
+    for i, n in ipairs({1, 10, 20, 100}) do steps[i] = {key = n, label = ns.T("batchStep", n)} end
+    panel.steps = K.Segment(c, steps, function(n)
+        local edit = panel.quantity
+        edit.liveAt = nil; edit:SetScript("OnUpdate", nil)
+        edit:ClearFocus(); edit:SetText(tostring(n))
+        panel:Emit("quantity", n)
+    end)
+    panel.reagentsTitle = K.Label(c, ns.T("batchReagents"), 0, 0, 200, "heading"); panel.reagentsTitle:SetHeight(14)
+    for i = 1, 16 do
+        local row = {buttons = {}}
+        row.frame = K.ItemChoice(c, function() panel.selected = row.node and row.node.id; panel:Render() end)
+        row.frame:SetHeight(30)
+        row.frame.selected:SetDrawLayer("BORDER")
+        row.frame.icon:SetWidth(22); row.frame.icon:SetHeight(22)
+        row.frame.text:SetHeight(12)
+        row.detail = K.Label(row.frame, "", 0, -16, 150, "secondary"); row.detail:SetHeight(12)
+        row.price = K.Label(row.frame, "", 0, -3, 80); row.price:SetHeight(12); row.price:SetJustifyH("RIGHT")
+        row.price:ClearAllPoints(); row.price:SetPoint("TOPRIGHT", row.frame, "TOPRIGHT", -4, -3)
+        row.sum = K.Label(row.frame, "", 0, -16, 80, "secondary"); row.sum:SetHeight(12); row.sum:SetJustifyH("RIGHT")
+        row.sum:ClearAllPoints(); row.sum:SetPoint("TOPRIGHT", row.frame, "TOPRIGHT", -4, -16)
+        row.expand = K.Button(row.frame, "+", 18, function()
+            if row.node then panel:Emit("make", not row.node.crafted, row.node.id) end
+        end, "quiet")
+        row.expand:SetHeight(18)
+        row.expand.text:ClearAllPoints(); row.expand.text:SetPoint("CENTER", row.expand, "CENTER", 0, 0)
+        K.Tooltip(row.expand, ns.T("craftMaterialSource"), ns.T("craftTreeTip"))
+        row.buttons[1] = K.Button(row.frame, ns.T("tradeBuy"), 58, function()
+            if row.node and panel.props.buy then panel.props.buy(row.node.id, row.node.need) end
+        end, "quiet")
+        row.buttons[1]:SetHeight(20)
+        row.buttons[1]:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
+        row.buttons[1]:Hide()
+        K.HookReveal(row)
+        panel:Scrollable(row.frame)
+        row.frame:Hide()
+        panel.rows[i] = row
+    end
+    panel.totalKeys, panel.totalValues = {}, {}
+    for i = 1, 4 do
+        local key = K.Label(c, "", 0, 0, 120, "secondary"); key:SetHeight(12)
+        local value = K.Label(c, "", 0, 0, 100); value:SetHeight(12); value:SetJustifyH("RIGHT")
+        panel.totalKeys[i], panel.totalValues[i] = key, value
+    end
+    panel.supply = K.Label(c, "", 0, 0, 220); panel.supply:SetHeight(12)
+    panel.buy = K.Button(c, "", 220, function() panel:BuyNext() end, "main")
+    K.Tooltip(panel.buy, ns.T("batchBuyMissing"), ns.T("batchBuyTip"))
+    panel.queueNote = K.Label(c, "", 0, 0, 220, "secondary"); panel.queueNote:SetHeight(24); panel.queueNote:SetJustifyV("TOP")
+    panel.frame:Hide()
+    return panel
+end
+function Batch:Emit(key, value, id)
+    if self.props and self.props.change then self.props.change(key, value, id) end
+end
+function Batch:SetProps(props)
+    if not self.props or not props.recipe or not self.props.recipe or self.props.recipe.raw ~= props.recipe.raw then
+        self.queue, self.selected = 1, nil
+    end
+    self.props = props; self:Render()
+end
+function Batch:Missing()
+    local missing, seen = {}, {}
+    for _, node in ipairs(self.plan and self.plan.rows or {}) do
+        if not node.excluded and not node.crafted and node.need > 0 and not ns.vendorPrices[node.id] then
+            if not seen[node.id] then
+                seen[node.id] = {id = node.id, need = 0}
+                missing[#missing + 1] = seen[node.id]
+            end
+            seen[node.id].need = seen[node.id].need + node.need
+        end
+    end
+    return missing
+end
+function Batch:BuyNext()
+    local missing = self:Missing()
+    if #missing == 0 or not self.props.buy then return end
+    local index = math.max(1, math.min(self.queue, #missing))
+    local item = missing[index]
+    self.queue = index % #missing + 1
+    self.props.buy(item.id, item.need)
+    self:Render()
+end
+function Batch:Place(frame, x, y)
+    frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", self.child, "TOPLEFT", x or 0, -y); frame:Show()
+end
+function Batch:Render()
+    local p = self.props
+    if not p or not p.recipe then self.frame:Hide(); return end
+    self.frame:Show()
+    local o = p.options
+    local plan = ns.CraftPlan.Build(p.recipe, {make = o.make, ignore = o.ignore, craftAll = o.craftAll, owned = o.owned,
+        fee = o.fee, quantity = o.quantity})
+    self.plan = plan
+    local width = math.max(160, (self.frame:GetWidth() or 240) - 22)
+    self.child:SetWidth(width)
+    self.status:SetWidth(width)
+    local status = ns.T("batchOutput", p.recipe.count)
+    if p.known == true then status = status .. " | " .. ns.T("craftRecipeKnown")
+    elseif p.known == false then status = status .. " | " .. ns.T("craftRecipeUnknown") end
+    self.status:SetText(status)
+    local y = 34
+    self.sourceChip:SetChecked(o.craftAll and true or false)
+    self.ownedChip:SetChecked(o.owned and true or false)
+    self:Place(self.sourceChip, 0, y)
+    self:Place(self.ownedChip, (self.sourceChip:GetWidth() or 120) + 6, y)
+    y = y + 28
+    self:Place(self.quantityLabel, 0, y + 5)
+    self:Place(self.quantity, 84, y)
+    if not self.quantity:HasFocus() then self.quantity:SetText(tostring(plan.requested)) end
+    self.crafts:SetText(ns.T("batchCrafts", plan.crafts))
+    self:Place(self.crafts, 146, y + 5)
+    y = y + 26
+    self.steps:Select(plan.requested)
+    self:Place(self.steps.frame, 0, y)
+    y = y + 28
+    self:Place(self.reagentsTitle, 0, y)
+    y = y + 18
+    for i, row in ipairs(self.rows) do
+        local node = plan.rows[i]
+        row.node = node
+        if node then
+            self:Place(row.frame, 0, y)
+            row.frame:SetWidth(width)
+            local offset = 22 + node.depth * 12
+            K.SetItemChoice(row.frame, node.id, node.id == self.selected)
+            row.frame.icon:ClearAllPoints(); row.frame.icon:SetPoint("LEFT", row.frame, "LEFT", offset, 0)
+            row.frame.text:ClearAllPoints(); row.frame.text:SetPoint("TOPLEFT", row.frame, "TOPLEFT", offset + 26, -3)
+            row.frame.text:SetWidth(math.max(40, width - offset - 112))
+            row.detail:ClearAllPoints(); row.detail:SetPoint("TOPLEFT", row.frame, "TOPLEFT", offset + 26, -16)
+            row.detail:SetWidth(math.max(40, width - offset - 112))
+            row.expand:ClearAllPoints(); row.expand:SetPoint("LEFT", row.frame, "LEFT", offset - 20, 0)
+            row.expand:SetText(node.crafted and "-" or "+")
+            if node.expandable and not node.excluded then row.expand:Show() else row.expand:Hide() end
+            local quote = node.quote
+            local price = quote and quote.miss == 0 and quote.complete ~= false and quote.price or nil
+            local stale = price and not quote.vendor and not quote.manual and not ns.Markets.Fresh(node.id)
+            local detail, tone
+            if node.excluded then detail, tone = ns.T("batchExcluded"), "secondary"
+            elseif node.crafted then detail, tone = ns.T("batchNeedMake", node.count, node.crafts or 0), "text"
+            else
+                detail = ns.T("batchNeed", node.count, node.own, node.need)
+                if node.need == 0 then detail, tone = detail .. " | " .. ns.T("batchEnough"), "positive"
+                elseif not price then detail, tone = detail .. " | " .. ns.T("batchNoPrice"), "negative"
+                elseif (quote.units or 0) == 0 and not quote.vendor and not quote.manual then
+                    detail, tone = detail .. " | " .. ns.T("batchNotOnAuction"), "negative"
+                elseif stale then detail, tone = detail .. " | " .. ns.T("batchStale"), "secondary"
+                else tone = "text" end
+            end
+            row.detail:SetText(detail)
+            row.detail:SetTextColor(unpack(K.theme[tone]))
+            row.price:SetText(node.crafted and "" or K.Money(price))
+            row.price:SetTextColor(unpack(K.theme[(not node.crafted and not node.excluded and not price) and "negative" or "text"]))
+            row.sum:SetText(K.Money(node.crafted and node.value or node.cash))
+            row.props = {active = node.id == self.selected,
+                actions = (not node.excluded and not node.crafted and node.need > 0 and not ns.vendorPrices[node.id])
+                    and {{label = ns.T("tradeBuy"), tip = ns.T("batchBuyRowTip")}} or nil}
+            K.RevealActions(row)
+            y = y + 30
+        else row.frame:Hide() end
+    end
+    y = y + 6
+    local fee = math.floor((o.fee or 0.05) * 100 + 0.5)
+    local totals = {{ns.T("batchCost"), K.Money(plan.cost), "text"},
+        {ns.T("batchCash"), K.Money(plan.cash), "text"},
+        {ns.T("batchRevenue", fee), K.Money(plan.revenue), "text"},
+        {ns.T("batchMargin"), K.Money(plan.margin), plan.margin and (plan.margin > 0 and "positive" or "negative") or "text"}}
+    for i, total in ipairs(totals) do
+        self:Place(self.totalKeys[i], 0, y)
+        self.totalValues[i]:ClearAllPoints()
+        self.totalValues[i]:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, -y); self.totalValues[i]:Show()
+        self.totalKeys[i]:SetText(total[1]); self.totalValues[i]:SetText(total[2])
+        self.totalValues[i]:SetTextColor(unpack(K.theme[total[3]]))
+        y = y + 13
+    end
+    if plan.cost then
+        self.supply:SetText(plan.short > 0 and ns.T("batchSupplyShort", plan.short) or ns.T("batchSupplyOk"))
+        self.supply:SetTextColor(unpack(K.theme[plan.short > 0 and "negative" or "positive"]))
+    else
+        self.supply:SetText(ns.T("craftBatchMissing", plan.missing))
+        self.supply:SetTextColor(unpack(K.theme.negative))
+    end
+    self:Place(self.supply, 0, y + 2)
+    y = y + 20
+    local missing = self:Missing()
+    self.buy:SetWidth(width)
+    self:Place(self.buy, 0, y)
+    if #missing == 0 then
+        self.buy:SetText(ns.T("batchNothingToBuy")); self.buy:Disable(); self.queueNote:SetText("")
+    else
+        local index = math.max(1, math.min(self.queue, #missing))
+        self.buy.tipFn = function()
+            return ns.T("batchBuyTip") .. "\n\n" .. ns.Markets.Name(missing[index].id) .. " x" .. missing[index].need
+        end
+        self.buy:SetText(#missing == 1 and ns.T("batchBuyMissing")
+            or ns.T("batchBuyNext", index, #missing))
+        self.buy:Enable()
+        local rest = {}
+        for i = 1, #missing do
+            local following = missing[(index + i - 1) % #missing + 1]
+            if i > 1 and #rest < 3 then rest[#rest + 1] = ns.Markets.Name(following.id) .. " x" .. following.need end
+        end
+        self.queueNote:SetText(#rest > 0 and ns.T("batchQueue", table.concat(rest, ", ")) or "")
+    end
+    y = y + 30
+    self.queueNote:SetWidth(width)
+    self:Place(self.queueNote, 0, y)
+    y = y + 26
+    self.child:SetHeight(y)
+end
+function K.LedgerColumns(width, mode, actions)
+    local spec, drop, flex
+    if mode == "materials" then
+        spec = {{"item", 0}, {"stock", 64}, {"posted", 76}, {"unit", 84}, {"market", 84}, {"value", 92}, {"sold", 64}, {"net", 92}}
+        drop, flex = {"sold", "posted", "net"}, "item"
+    elseif mode == "journal" then
+        spec = {{"item", 0}, {"event", 150}, {"amount", 92}, {"source", 108}, {"when", 92}}
+        drop, flex = {"source"}, "item"
+    elseif mode == "analysis" then
+        spec = {{"item", 0}, {"count", 50}, {"cost", 86}, {"units", 130}, {"expected", 92}, {"gross", 92},
+            {"luck", 66}, {"result", 96}}
+        drop, flex = {"expected", "units"}, "item"
+    else
+        spec = {{"item", math.max(170, math.min(250, math.floor(width * 0.24)))}, {"stage", 96}, {"cost", 80},
+            {"output", 0}, {"market", 88}, {"net", 96}, {"result", 88}, {"when", 86}}
+        drop, flex = {"when", "market"}, "output"
+    end
+    local action = actions and (mode == "journal" and 86 or 134) or 0
+    local used, skip = action, {}
+    for _, column in ipairs(spec) do used = used + column[2] end
+    local minimum = flex == "item" and 200 or 130
+    for _, key in ipairs(drop) do
+        if width - used >= minimum then break end
+        for _, column in ipairs(spec) do if column[1] == key then used, skip[key] = used - column[2], true end end
+    end
+    local rest = math.max(flex == "item" and 120 or 96, width - used)
+    local columns, x = {}, 0
+    for _, column in ipairs(spec) do
+        if not skip[column[1]] then
+            local size = column[1] == flex and rest or column[2]
+            columns[column[1]] = {x, size}; x = x + size
+        end
+    end
+    columns.action = {x, action}
+    return columns
+end
+local LedgerRow = {}
+LedgerRow.__index = LedgerRow
+K.LedgerRow = LedgerRow
+function LedgerRow:New(parent, select)
+    local row = setmetatable({cells = {}, buttons = {}}, self)
+    row.parent = parent
+    row.frame = K.ItemChoice(parent, function() if row.props then select(row.props.key) end end)
+    row.frame:SetHeight(24)
+    row.frame.selected:SetDrawLayer("BORDER")
+    parent.ledgerRowCount = (rawget(parent, "ledgerRowCount") or 0) + 1
+    row.stripe = row.frame:CreateTexture(nil, "BACKGROUND")
+    row.stripe:SetAllPoints(row.frame); row.stripe:SetTexture(K.theme.white)
+    row.stripe:SetVertexColor(unpack(K.theme.row))
+    if parent.ledgerRowCount % 2 == 0 then row.stripe:Hide() end
+    row.frame.icon:ClearAllPoints(); row.frame.icon:SetPoint("LEFT", row.frame, "LEFT", 8, 0)
+    row.frame.icon:SetWidth(18); row.frame.icon:SetHeight(18)
+    row.frame.text:ClearAllPoints(); row.frame.text:SetPoint("LEFT", row.frame, "LEFT", 32, 0)
+    row.frame.text:SetHeight(12)
+    for i = 1, 2 do
+        local button = K.Button(row.frame, "", 64, function()
+            local action = row.props and row.props.actions and row.props.actions[i]
+            if action then action.fn(row.props.key, row.props) end
+        end, "quiet")
+        button:SetHeight(20); button:Hide()
+        row.buttons[i] = button
+    end
+    row.buttons[1]:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
+    row.buttons[2]:SetPoint("RIGHT", row.buttons[1], "LEFT", -3, 0)
+    K.HookReveal(row)
+    return row
+end
+function LedgerRow:Cell(key)
+    local cell = self.cells[key]
+    if not cell then
+        cell = K.Label(self.frame, "", 0, -6, 80)
+        cell:SetHeight(12); cell:SetJustifyH("RIGHT")
+        self.cells[key] = cell
+    end
+    return cell
+end
+function LedgerRow:Icons(column, icons)
+    self.icons = self.icons or {}
+    for i = 1, 3 do
+        local slot = self.icons[i]
+        if not slot then
+            slot = {texture = self.frame:CreateTexture(nil, "ARTWORK"), label = K.Label(self.frame, "", 0, -6, 40)}
+            slot.texture:SetWidth(16); slot.texture:SetHeight(16)
+            slot.label:SetHeight(12)
+            self.icons[i] = slot
+        end
+        local entry = column and icons and icons[i]
+        if entry then
+            local x = column[1] + (i - 1) * 58
+            slot.texture:SetTexture(select(10, ns.Compat.ItemInfo(entry.id)))
+            slot.texture:ClearAllPoints(); slot.texture:SetPoint("LEFT", self.frame, "LEFT", x, 0)
+            slot.label:ClearAllPoints(); slot.label:SetPoint("LEFT", self.frame, "LEFT", x + 19, 0)
+            local more = i == 3 and #icons > 3 and (" +" .. (#icons - 3)) or ""
+            slot.label:SetText("x" .. entry.count .. more)
+            slot.texture:Show(); slot.label:Show()
+        else slot.texture:Hide(); slot.label:Hide() end
+    end
+end
+function LedgerRow:SetProps(props)
+    self.props = props; self:Render()
+end
+function LedgerRow:Render()
+    local p, frame = self.props, self.frame
+    local columns = K.LedgerColumns(p.width, p.mode, p.hasActions)
+    frame:SetWidth(p.width)
+    self:Icons(columns.output, p.icons)
+    if p.id then
+        K.SetItemChoice(frame, p.id, p.active, p.quality)
+        frame.itemLink = p.link and p.link:find("item:", 1, true) and p.link or nil
+    else
+        frame.itemID, frame.itemLink = nil, nil
+        frame.icon:SetTexture(nil); frame.text:SetText(p.title or "")
+        frame.text:SetTextColor(unpack(K.theme.text))
+        if p.active then frame.selected:Show() else frame.selected:Hide() end
+        frame:Show()
+    end
+    frame.extraTip = p.tip
+    frame.text:SetWidth(math.max(40, columns.item[2] - 38))
+    for key, cell in pairs(self.cells) do if not columns[key] or not p.cells[key] then cell:Hide() end end
+    for key, value in pairs(p.cells) do
+        local column = columns[key]
+        if column then
+            local cell = self:Cell(key)
+            cell:ClearAllPoints(); cell:SetPoint("LEFT", frame, "LEFT", column[1], 0)
+            cell:SetWidth(column[2] - 6)
+            cell:SetText(value[1] or "")
+            cell:SetTextColor(unpack(K.theme[value[2] or "text"]))
+            cell:Show()
+        end
+    end
+    for i, button in ipairs(self.buttons) do
+        local action = p.actions and p.actions[i]
+        if action then button:SetWidth(action.width or 64) end
+    end
+    K.RevealActions(self)
+end
+function K.DisabledTip(b, title, reason)
+    b.disabledTipTitle, b.disabledTip = title, reason
+    if rawget(b, "disabledTipHooked") then return end
+    b.disabledTipHooked = true
+    b:HookScript("OnEnter", function(self)
+        if not self.btnDisabled or not self.disabledTip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(self.disabledTipTitle, unpack(K.theme.text))
+        GameTooltip:AddLine(self.disabledTip, K.theme.gold[1], K.theme.gold[2], K.theme.gold[3], true)
+        GameTooltip:Show()
+    end)
+    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+end
+function K.RecycleColumns(width)
+    local action, bags, assemble, split, asIs = 70, 66, 96, 90, 90
+    local item = width - action - bags - assemble - split - asIs
+    if item < 230 then item, bags = item + bags, 0 end
+    local columns, x = {item = {0, item}}, item
+    for _, column in ipairs({{"asIs", asIs}, {"split", split}, {"assemble", assemble}, {"bags", bags}}) do
+        if column[2] > 0 then columns[column[1]] = {x, column[2]}; x = x + column[2] end
+    end
+    columns.action = {x, action}
+    return columns
+end
+local RecycleRow = {}
+RecycleRow.__index = RecycleRow
+K.RecycleRow = RecycleRow
+function RecycleRow:New(parent, select)
+    local row = setmetatable({buttons = {}}, self)
+    row.frame = K.ItemChoice(parent, function() select(row.props.key) end)
+    row.frame:SetHeight(24)
+    row.frame.selected:SetDrawLayer("BORDER")
+    parent.recycleRowCount = (rawget(parent, "recycleRowCount") or 0) + 1
+    row.stripe = row.frame:CreateTexture(nil, "BACKGROUND")
+    row.stripe:SetAllPoints(row.frame); row.stripe:SetTexture(K.theme.white)
+    row.stripe:SetVertexColor(unpack(K.theme.row))
+    if parent.recycleRowCount % 2 == 0 then row.stripe:Hide() end
+    row.frame.icon:ClearAllPoints(); row.frame.icon:SetPoint("LEFT", row.frame, "LEFT", 8, 0)
+    row.frame.icon:SetWidth(18); row.frame.icon:SetHeight(18)
+    row.frame.text:ClearAllPoints(); row.frame.text:SetPoint("LEFT", row.frame, "LEFT", 32, 0)
+    row.frame.text:SetHeight(12)
+    row.cells = {}
+    for _, key in ipairs({"asIs", "split", "assemble", "bags"}) do
+        local cell = K.Label(row.frame, "", 0, -6, 80, key == "bags" and "secondary" or nil)
+        cell:SetHeight(12); cell:SetJustifyH("RIGHT")
+        row.cells[key] = cell
+    end
+    row.buttons[1] = K.Button(row.frame, ns.T("tradeUpdate"), 62, function()
+        local action = row.props.actions and row.props.actions[1]
+        if action then action.fn(row.props.key, row.props) end
+    end, "quiet")
+    row.buttons[1]:SetHeight(20)
+    row.buttons[1]:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
+    row.buttons[1]:Hide()
+    K.HookReveal(row)
+    return row
+end
+function RecycleRow:SetProps(props)
+    self.props = props; self:Render()
+end
+function RecycleRow:Render()
+    local p, e = self.props, self.props.estimate
+    local columns = K.RecycleColumns(p.width)
+    self.frame:SetWidth(p.width)
+    K.SetItemChoice(self.frame, p.id, p.active)
+    self.frame.extraTip = p.tip
+    self.frame.text:SetWidth(math.max(40, columns.item[2] - 38))
+    for key, cell in pairs(self.cells) do
+        local column = columns[key]
+        cell:ClearAllPoints()
+        if column then
+            cell:SetPoint("LEFT", self.frame, "LEFT", column[1], 0)
+            cell:SetWidth(column[2] - 6); cell:Show()
+        else cell:Hide() end
+    end
+    self.cells.asIs:SetText(K.Money(e.asIs))
+    self.cells.split:SetText(p.oneWay and ns.T("tradeNoPrice") or K.Money(e.split))
+    self.cells.assemble:SetText(K.Money(e.assemble))
+    self.cells.asIs:SetTextColor(unpack(K.theme[e.best == "asIs" and "positive" or "text"]))
+    self.cells.split:SetTextColor(unpack(K.theme[e.best == "split" and "positive" or "text"]))
+    self.cells.assemble:SetTextColor(unpack(K.theme[e.assemble and (e.assemble > 0 and "positive" or "negative") or "text"]))
+    self.cells.bags:SetText((e.haveBig > 0 or e.haveSmall > 0) and ns.T("recycleBags", e.haveBig, e.haveSmall) or "")
+    K.RevealActions(self)
+    self.frame:Show()
+end
+function K.BagColumns(width)
+    local spec = {{"count", 56}, {"cost", 86}, {"market", 86}, {"value", 96}, {"posted", 80}}
+    local used, skip = 0, {}
+    for _, column in ipairs(spec) do used = used + column[2] end
+    for _, key in ipairs({"posted", "cost"}) do
+        if width - used >= 200 then break end
+        for _, column in ipairs(spec) do if column[1] == key then used, skip[key] = used - column[2], true end end
+    end
+    local rest = math.max(120, width - used)
+    local columns, x = {item = {0, rest}}, rest
+    for _, column in ipairs(spec) do
+        if not skip[column[1]] then columns[column[1]] = {x, column[2]}; x = x + column[2] end
+    end
+    return columns
+end
+local BagRow = {}
+BagRow.__index = BagRow
+K.BagRow = BagRow
+function BagRow:New(parent, select)
+    local row = setmetatable({cells = {}}, self)
+    row.frame = K.ItemChoice(parent, function() if row.props then select(row.props.id) end end)
+    row.frame:SetHeight(24)
+    row.frame.selected:SetDrawLayer("BORDER")
+    parent.bagRowCount = (rawget(parent, "bagRowCount") or 0) + 1
+    row.stripe = row.frame:CreateTexture(nil, "BACKGROUND")
+    row.stripe:SetAllPoints(row.frame); row.stripe:SetTexture(K.theme.white)
+    row.stripe:SetVertexColor(unpack(K.theme.row))
+    if parent.bagRowCount % 2 == 0 then row.stripe:Hide() end
+    row.frame.icon:ClearAllPoints(); row.frame.icon:SetPoint("LEFT", row.frame, "LEFT", 8, 0)
+    row.frame.icon:SetWidth(18); row.frame.icon:SetHeight(18)
+    row.frame.text:ClearAllPoints(); row.frame.text:SetPoint("LEFT", row.frame, "LEFT", 32, 0)
+    row.frame.text:SetHeight(12)
+    return row
+end
+function BagRow:Cell(key)
+    local cell = self.cells[key]
+    if not cell then
+        cell = K.Label(self.frame, "", 0, -6, 80)
+        cell:SetHeight(12); cell:SetJustifyH("RIGHT")
+        self.cells[key] = cell
+    end
+    return cell
+end
+function BagRow:SetProps(props)
+    self.props = props; self:Render()
+end
+function BagRow:Render()
+    local p, frame = self.props, self.frame
+    local columns = K.BagColumns(p.width)
+    frame:SetWidth(p.width)
+    K.SetItemChoice(frame, p.id, p.active)
+    frame.extraTip = p.tip
+    frame.text:SetWidth(math.max(40, columns.item[2] - 38))
+    for key, cell in pairs(self.cells) do if not columns[key] or not p.cells[key] then cell:Hide() end end
+    for key, value in pairs(p.cells) do
+        local column = columns[key]
+        if column then
+            local cell = self:Cell(key)
+            cell:ClearAllPoints(); cell:SetPoint("LEFT", frame, "LEFT", column[1], 0)
+            cell:SetWidth(column[2] - 6)
+            cell:SetText(value[1] or "")
+            cell:SetTextColor(unpack(K.theme[value[2] or "text"]))
+            cell:Show()
+        end
+    end
+end
+function K.ValueRow(parent, text, y)
+    local label = K.Label(parent, text, 12, y, 118, "secondary")
+    label:SetHeight(12)
+    local value = K.Label(parent, "", 0, y, 124)
+    value:SetHeight(12); value:SetJustifyH("RIGHT")
+    value:ClearAllPoints(); value:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -12, y)
+    return label, value
+end
+function K.BargainColumns(width, mode)
+    local spec, drop
+    if mode == "bid" then
+        spec = {{"count", 40}, {"price", 90}, {"market", 90}, {"gain", 100}, {"left", 82}, {"buyout", 66}}
+        drop = {"buyout", "left", "market"}
+    else
+        spec = {{"count", 40}, {"price", 90}, {"market", 90}, {"discount", 62}, {"revenue", 100}, {"age", 70}}
+        drop = {"age", "market", "count"}
+    end
+    local action = 82
+    local used, skip = action, {}
+    for _, column in ipairs(spec) do used = used + column[2] end
+    for _, key in ipairs(drop) do
+        if width - used >= 200 then break end
+        for _, column in ipairs(spec) do if column[1] == key then used, skip[key] = used - column[2], true end end
+    end
+    local rest = math.max(120, width - used)
+    local columns, x = {item = {0, rest}}, rest
+    for _, column in ipairs(spec) do
+        if not skip[column[1]] then columns[column[1]] = {x, column[2]}; x = x + column[2] end
+    end
+    columns.action = {x, action}
+    return columns
+end
+local BargainRow = setmetatable({}, {__index = K.LedgerRow})
+BargainRow.__index = BargainRow
+K.BargainRow = BargainRow
+function BargainRow:Render()
+    local p, frame = self.props, self.frame
+    local columns = K.BargainColumns(p.width, p.mode)
+    frame:SetWidth(p.width)
+    K.SetItemChoice(frame, p.id, p.active, p.quality)
+    frame.extraTip = p.tip
+    frame.text:SetWidth(math.max(40, columns.item[2] - 38))
+    for key, cell in pairs(self.cells) do if not columns[key] or not p.cells[key] then cell:Hide() end end
+    for key, value in pairs(p.cells) do
+        local column = columns[key]
+        if column then
+            local cell = self:Cell(key)
+            cell:ClearAllPoints(); cell:SetPoint("LEFT", frame, "LEFT", column[1], 0)
+            cell:SetWidth(column[2] - 6)
+            cell:SetText(value[1] or "")
+            cell:SetTextColor(unpack(K.theme[value[2] or "text"]))
+            cell:Show()
+        end
+    end
+    for i, button in ipairs(self.buttons) do
+        local action = p.actions and p.actions[i]
+        if action then button:SetWidth(action.width or 74) end
+    end
+    K.RevealActions(self)
+end
+function K.Suggest(edit, fetch, choose, limit)
+    limit = limit or 8
+    local box = ns.NewFrame("Frame", nil, edit:GetParent())
+    box:SetFrameStrata("DIALOG")
+    box:SetPoint("TOPLEFT", edit, "BOTTOMLEFT", -4, -2)
+    box:SetBackdrop(K.theme.buttonSkin)
+    box:SetBackdropColor(unpack(K.theme.card))
+    box:SetBackdropBorderColor(unpack(K.theme.edge))
+    box:EnableMouse(true)
+    box.entries, box.rows = {}, {}
+    local function pick(index)
+        local entry = box.entries[index]
+        box:Hide()
+        if entry then choose(entry) end
+    end
+    for i = 1, limit do
+        local row = K.ItemChoice(box, function() pick(i) end)
+        row:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4 - (i - 1) * 22)
+        row:SetHeight(22)
+        row.icon:SetWidth(18); row.icon:SetHeight(18)
+        row:Hide()
+        box.rows[i] = row
+    end
+    box.Render = function(self)
+        local width = math.max(160, (edit:GetWidth() or 200) + 8)
+        self:SetWidth(width)
+        for i, row in ipairs(self.rows) do
+            local entry = self.entries[i]
+            if entry then
+                K.SetItemChoice(row, entry.id, i == rawget(self, "index"), entry.quality)
+                row.text:SetText(entry.name)
+                row:SetWidth(width - 8); row.text:SetWidth(width - 40)
+            else row:Hide() end
+        end
+        self:SetHeight(#self.entries * 22 + 8)
+        if #self.entries > 0 and edit:HasFocus() then self:Show() else self:Hide() end
+    end
+    box.Update = function(self)
+        self.entries, self.index = fetch(edit:GetText() or "") or {}, nil
+        self:Render()
+    end
+    box.Move = function(self, delta)
+        if #self.entries == 0 then return end
+        self.index = ((rawget(self, "index") or (delta > 0 and 0 or 1)) + delta - 1) % #self.entries + 1
+        self:Render()
+    end
+    box.Pick = function(self)
+        local index = rawget(self, "index")
+        if self:IsShown() and index then pick(index); return true end
+        self:Hide()
+        return false
+    end
+    edit:HookScript("OnTextChanged", function(_, user) if user then box:Update() end end)
+    edit:HookScript("OnEditFocusLost", function()
+        if not (MouseIsOver and MouseIsOver(box)) then box:Hide() end
+    end)
+    edit:HookScript("OnEscapePressed", function() box:Hide() end)
+    edit:HookScript("OnTabPressed", function()
+        if box:IsShown() then box:Move(IsShiftKeyDown() and -1 or 1) end
+    end)
+    box:Hide()
+    return box
+end
+function K.Ago(seconds)
+    if seconds < 3600 then return ns.T("buyAgoMin", math.max(1, math.floor(seconds / 60))) end
+    if seconds < 172800 then return ns.T("buyAgoHour", math.floor(seconds / 3600)) end
+    return ns.T("buyAgoDay", math.floor(seconds / 86400))
 end
