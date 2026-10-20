@@ -1,5 +1,5 @@
 local _, ns = ...
-local UI = {group = "wrathArmor", fee = 0.05, rows = {}, groups = {}, chips = {}, qualities = {[2] = true},
+local UI = {group = "wrathArmor", rows = {}, groups = {}, chips = {}, qualities = {[2] = true},
     mode = "equipment", target = 10940, equipmentGroup = "wrathArmor",
     selling = {hours = 12, losses = 1}, tail = true, tailPercent = -10, buyPercent = 0, minItemLevel = 0, maxItemLevel = 0,
     includeNoLevel = false, buyMode = "margin", buyPrice = 150000, excludedBands = {}, collapsed = {}}
@@ -162,7 +162,7 @@ function UI:Controls()
     self.buyLabel:SetText(ns.T(self:PriceLimit() and "deBarPrice" or "deBarMargin"))
     self.buyUnit:SetText(ns.T(self:PriceLimit() and "deGold" or "dePercent"))
     self.buyModes:Select(self.buyMode)
-    for _, control in ipairs({self.buyModes, self.tailCheck, self.feeSegment, self.durationSegment, self.groupMenu.frame,
+    for _, control in ipairs({self.buyModes, self.tailCheck, self.durationSegment, self.groupMenu.frame,
         self.modeSegment, self.targetPicker.frame, self.noLevelCheck}) do
         if ready then control:Enable() else control:Disable() end
     end
@@ -183,7 +183,7 @@ function UI:CanPurchase()
         and (ns.Scan.state.scan.deScannedPages or ns.Scan.state.page) > 0
 end
 function UI:Options()
-    return {fee = self.fee, percent = self.buyPercent, priceLimit = self:PriceLimit(),
+    return {fee = ns.Fee(), percent = self.buyPercent, priceLimit = self:PriceLimit(),
         minItemLevel = self.minItemLevel, maxItemLevel = self.maxItemLevel, includeNoLevel = self.includeNoLevel,
         excludedBands = self:Excluded(),
         selling = {hours = self.selling.hours, losses = self.selling.losses, base = self.selling.base}}
@@ -197,7 +197,7 @@ function UI:Purchase(itemID)
 end
 function UI:StartScan(part)
     if part ~= "materials" and not self:ReadSettings() then return end
-    ns.Disenchant.Scan(self.group, false, {fee = self.fee, cut = self.tail and not self:PriceLimit(),
+    ns.Disenchant.Scan(self.group, false, {fee = ns.Fee(), cut = self.tail and not self:PriceLimit(),
         percent = self.tailPercent, minItemLevel = self.minItemLevel, maxItemLevel = self.maxItemLevel,
         includeNoLevel = self.includeNoLevel,
         selling = {hours = self.selling.hours, losses = self.selling.losses, base = self.selling.base}}, part)
@@ -325,11 +325,6 @@ function UI:NewSettings(parent)
         elseif value and value >= 0 and value <= 10000 then self.selling.base = math.floor(value * 10000 + 0.5) end
     end, function() return self.selling.base and tostring(self.selling.base / 10000) or "" end)
     K.Tooltip(self.depositEdit, ns.T("deDepositOverride"), ns.T("deDepositOverrideTip"))
-    caption(ns.T("deFilterFee"), 58, -34)
-    self.feeSegment = K.Segment(parent, {{key = 0.05, label = ns.T("deFeeOption", 5)},
-        {key = 0.15, label = ns.T("deFeeOption", 15)}}, function(fee) self.fee = fee; self:Render() end)
-    put(self.feeSegment.frame, nil, 12, -34)
-    K.Tooltip(self.feeSegment.frame, ns.T("tradeFeeTitle"), ns.T("tradeFeeTip"))
     self.priceToggle = K.Button(parent, ns.T("dePrices"), 130, function()
         self.pricesExpanded = not self.showPrices; self:Render()
     end, "quiet")
@@ -353,7 +348,6 @@ function UI:Prices()
     self.showPrices = open and self.pricesExpanded or false
     self.priceToggle:SetActive(self.showPrices)
     self.durationSegment:Select(self.selling.hours)
-    self.feeSegment:Select(self.fee)
     for i, editor in ipairs(self.priceEditors) do
         local id = self.showPrices and ids[i]
         if id then
@@ -380,7 +374,7 @@ function UI:FilterSummary()
     if self.tail and not self:PriceLimit() then parts[#parts + 1] = ns.T("deSummaryTail", self.tailPercent) end
     parts[#parts + 1] = ns.T("deHours", self.selling.hours)
     parts[#parts + 1] = ns.T("deSummaryLosses", self.selling.losses)
-    parts[#parts + 1] = ns.T("tradeFee", math.floor(self.fee * 100 + 0.5))
+    parts[#parts + 1] = ns.T("auctionCommission", math.floor(ns.Fee() * 100 + 0.5))
     return table.concat(parts, " | ")
 end
 function UI:LayoutChips(startY)
@@ -500,12 +494,18 @@ function UI:Formula(entry)
     end
     if e.margin then
         lines[#lines + 1] = ns.T("deFormulaGross", K.Money(e.gross))
-        lines[#lines + 1] = ns.T("deFormulaFee", math.floor(self.fee * 100 + 0.5), K.Money(e.gross * self.fee))
+        lines[#lines + 1] = ns.T("deFormulaFee", math.floor(ns.Fee() * 100 + 0.5), K.Money(e.gross * ns.Fee()))
         lines[#lines + 1] = ns.T("deFormulaReserve", K.Money(e.reserve))
         lines[#lines + 1] = ns.T("deFormulaCost", K.Money(entry.cost))
         lines[#lines + 1] = ns.T("deFormulaMargin", K.Money(e.margin), ns.T("deMarginRate", e.percent or 0))
     else lines[#lines + 1] = ns.T("deFormulaUnknown") end
     return table.concat(lines, "\n")
+end
+function UI:VendorTip(entry)
+    local K, v, e = ns.TradeKit, entry.vendor, entry.estimate
+    local compare = e.net and ns.T("vendorDeCompare", K.Money(e.net), K.Money(v.unit))
+        or ns.T("vendorDeUnknown", K.Money(v.unit))
+    return ns.T("vendorDeLots", v.lots, v.units, K.Money(v.unit), K.Money(v.profit)) .. "\n" .. compare
 end
 function UI:Via(entry)
     local target = entry.target
@@ -569,10 +569,10 @@ function UI:Panel(selected, roles)
     self.note:SetText(note or "")
     self:FitPanel(note ~= nil)
     self:Outcomes(e)
-    local values = {K.Money(e.gross), e.gross and ("-" .. K.Money(e.gross * self.fee)) or K.Money(nil),
+    local values = {K.Money(e.gross), e.gross and ("-" .. K.Money(e.gross * ns.Fee())) or K.Money(nil),
         e.reserve and ("-" .. K.Money(e.reserve)) or K.Money(nil), "-" .. K.Money(selected.cost),
         K.Money(e.margin) .. (e.percent and (" " .. ns.T("deMarginRate", e.percent)) or "")}
-    self.calcKeys[2]:SetText(ns.T("deCalcFee", math.floor(self.fee * 100 + 0.5)))
+    self.calcKeys[2]:SetText(ns.T("deCalcFee", math.floor(ns.Fee() * 100 + 0.5)))
     for i, label in ipairs(self.calcValues) do label:SetText(values[i]) end
     self.calcValues[5]:SetTextColor(unpack(K.theme[e.margin and (e.margin > 0 and "positive" or "negative") or "text"]))
     local scenarios = {e.low, e.margin, e.high}
@@ -606,6 +606,7 @@ function UI:FitPanel(withNote)
     self.scrollBody:ClearAllPoints()
     self.scrollBody:SetPoint("TOPLEFT", self.inspector.body, "TOPLEFT", 0, -40)
     self.scrollBody:SetPoint("BOTTOMRIGHT", self.inspector.body, "BOTTOMRIGHT", fits and -6 or -26, 4)
+    ns.TradeKit.PanelScrollBar(self.scrollBody, fits)
     self.panelChild:SetWidth(width); self.panelChild:SetHeight(height)
     self.calc:SetWidth(width)
     local tile = math.floor((width - 16 - 8) / 3)
@@ -621,7 +622,7 @@ function UI:Render()
     local K, D, selected = ns.TradeKit, ns.Disenchant
     local group = D.Group(self.group)
     local target = group.targetID
-    local rows = self.sorter:Apply(D.Rows(self.group, self.fee, self.selling, self.minItemLevel,
+    local rows = self.sorter:Apply(D.Rows(self.group, ns.Fee(), self.selling, self.minItemLevel,
         self.tail and not self:PriceLimit() and self.tailPercent or nil, self.maxItemLevel, self.includeNoLevel,
         self:Excluded()), {
         item = function(entry) return ns.Markets.Name(entry.id) end,
@@ -652,10 +653,11 @@ function UI:Render()
     self.headerBand:SetPoint("TOPRIGHT", f, "TOPRIGHT", -290, -(top - 20))
     local lines, order = self:Lines(rows)
     local roles = self:Roles()
-    local visible = K.ListCapacity(f, top, 88, 24, #self.rows + #self.groups)
+    local bottom = self:PlacePreview()
+    local visible = K.ListCapacity(f, top, bottom, 24, #self.rows + #self.groups)
     self.scroll.frame:ClearAllPoints()
     self.scroll.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -top)
-    self.scroll.frame:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -272, 88)
+    self.scroll.frame:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -272, bottom)
     self.inspector:Place(-(top - 25))
     self.empty:ClearAllPoints(); self.empty:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -top - 10)
     self.empty:SetWidth(math.max(100, width - 20))
@@ -677,7 +679,9 @@ function UI:Render()
                     active = entry.id == self.selected,
                     match = self:PriceLimit() and entry.cost < self.buyPrice or not self:PriceLimit()
                         and entry.estimate.percent ~= nil and entry.estimate.percent > self.buyPercent,
-                    tip = ns.T("deRow", entry.meta.level, entry.meta.skill) .. "\n" .. self:Formula(entry),
+                    tip = ns.T("deRow", entry.meta.level, entry.meta.skill) .. "\n" .. self:Formula(entry)
+                        .. (entry.vendor and ("\n\n" .. self:VendorTip(entry)) or ""),
+                    tag = entry.vendor and ns.T("vendorTag", K.MoneyShort(entry.vendor.profit)) or nil,
                     actionDisabled = not self:CanPurchase() or (self:PriceLimit() and entry.cost >= self.buyPrice)
                         or (not self:PriceLimit() and not entry.estimate.percent)
                         or entry.cost > GetMoney()})
@@ -695,7 +699,8 @@ function UI:Render()
                         out.minCount, out.maxCount),
                     tag = role == "top" and ns.T("deBandTop") or (role == "low" and ns.T("deBandLow")
                         or (role == "weapon" and ns.T("deBandWeapon") or nil)),
-                    tip = ns.T("deBandTip")})
+                    tip = (role == "top" and ns.T("deBandTopTip") .. "\n\n" or (role == "low" and ns.T("deBandLowTip")
+                        .. "\n\n" or "")) .. ns.T("deBandTip")})
             end
         end
     end
@@ -705,22 +710,15 @@ function UI:Render()
     local emptyKey = progress and (progress.stage == "materials" and "dePreparingEmpty" or "deSearchingEmpty")
         or (scan and "deFinishedEmpty" or "deEmpty")
     self.empty:SetText(#rows == 0 and ns.T(emptyKey) or "")
-    self.progress:SetText(#rows > 0 and ns.T("deResultCount", #rows)
-        or group.minItemLevel and ns.T("deTargetRange", group.minItemLevel, group.maxItemLevel) or ns.T("deStartHint"))
-    self.status:ClearAllPoints()
-    self.status:SetPoint("BOTTOMLEFT", self.progress, "BOTTOMRIGHT", 10, 0)
-    self.status:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -276, 64)
-    self.status:SetText(scan and ns.T("deSnapshot", date("%d.%m %H:%M", scan.t + scan.secs), scan.miss or 0)
-        or ns.T("deNotScanned"))
-    if scan and scan.deSavedPartial and not progress then
-        self.status:SetText(ns.T("dePartialSaved", scan.deReadPages or 0, #scan.lots))
-    elseif scan and scan.deCut and not progress then
-        self.status:SetText(ns.T("deCutStatus", scan.deReadPages, scan.dePercent))
-    elseif scan and scan.deCutStopped and not progress then
-        self.status:SetText(ns.T("deCutStopped", ns.T("deCutReason" .. scan.deCutStopped)))
-    elseif scan and scan.deCutDisabled and not progress then
-        self.status:SetText(ns.T("deCutUnavailable"))
+    local snapshot = scan and ns.T("deSnapshot", date("%d.%m %H:%M", scan.t + scan.secs), scan.miss or 0) or ns.T("deNotScanned")
+    if scan and not progress then
+        if scan.deSavedPartial then snapshot = ns.T("dePartialSaved", scan.deReadPages or 0, #scan.lots)
+        elseif scan.deCut then snapshot = ns.T("deCutStatus", scan.deReadPages, scan.dePercent)
+        elseif scan.deCutStopped then snapshot = ns.T("deCutStopped", ns.T("deCutReason" .. scan.deCutStopped))
+        elseif scan.deCutDisabled then snapshot = ns.T("deCutUnavailable") end
     end
+    self.statusText = ns.T("deResultCount", #rows) .. " | " .. snapshot
+    ns.Trader.RenderStatus()
     if selected then self.inspector:SetProps({id = selected.id}); self.item:Show() else self.inspector:Clear() end
     self:Panel(selected, roles)
     self.preview = D.PurchasePlan(self.group, self:Options())
@@ -844,11 +842,6 @@ function UI:NewTable(f)
 end
 function UI:NewBottom(f)
     local K = ns.TradeKit
-    self.progress = K.Label(f, "", 10, -34, 230, "secondary")
-    self.progress:SetHeight(12)
-    self.progress:ClearAllPoints(); self.progress:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 64)
-    self.status = K.Label(f, "", 250, -34, 400, "secondary")
-    self.status:SetHeight(12)
     self.buyModes = K.Segment(f, {{key = "margin", label = ns.T("buyModeMargin")},
         {key = "price", label = ns.T("buyModePrice")}}, function(mode)
         if self.buyMode ~= mode then self:SetBuyMode(mode) end
@@ -874,9 +867,21 @@ function UI:NewBottom(f)
     self.buy:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     self.buyPreview = K.Label(f, "", 0, 0, 300, "secondary")
     self.buyPreview:SetHeight(12)
-    self.buyPreview:ClearAllPoints()
-    self.buyPreview:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 40)
-    self.buyPreview:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 40)
+end
+function UI:PlacePreview()
+    local f, preview = self.frame, self.buyPreview
+    local used = 10 + (self.buyModes.frame:GetWidth() or 130) + 12 + (self.buyLabel:GetWidth() or 90) + 4
+        + (self.buyEdit:GetWidth() or 60) + 3 + (self.buyUnit:GetWidth() or 16) + 16
+    local free = (f:GetWidth() or 996) - 282 - (self.buy:GetWidth() or 170) - 10 - used
+    preview:ClearAllPoints()
+    if free >= 180 then
+        preview:SetPoint("LEFT", self.buyUnit, "RIGHT", 16, 0)
+        preview:SetPoint("RIGHT", self.buy, "LEFT", -10, 0)
+        return 40
+    end
+    preview:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 40)
+    preview:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 40)
+    return 64
 end
 function UI:NewPanel()
     local K = ns.TradeKit
@@ -901,7 +906,7 @@ function UI:NewPanel()
     k:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -30); k:SetWidth(258)
     self.calc, self.calcHeight = k, 326
     k:SetHeight(self.calcHeight)
-    self.calcTitle = K.Label(k, ns.T("deCalcTitle"), 12, -4, 220, "heading")
+    self.calcTitle = K.Label(k, ns.T("deCalcTitle"), 12, -4, 200, "heading")
     self.outcomes = K.OutcomeList:New(k)
     self.outcomes.frame:ClearAllPoints()
     self.outcomes.frame:SetPoint("TOPLEFT", k, "TOPLEFT", 12, -22)
@@ -945,8 +950,8 @@ function UI:NewPanel()
     self.viaValue:SetPoint("TOPRIGHT", k, "TOPRIGHT", -4, -310)
     self.summary = K.Label(c, "", 12, -4, 222, "secondary")
     self.summary:SetHeight(300); self.summary:SetJustifyV("TOP")
-    local info = K.Button(panel, ns.T("tradeInfo"), 22, function() end, "quiet")
-    info:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -44)
+    local info = K.Button(k, ns.T("tradeInfo"), 18, function() end, "quiet")
+    info:SetHeight(18); info:SetPoint("TOPRIGHT", k, "TOPRIGHT", -4, -1)
     K.Tooltip(info, ns.T("deTitle"), ns.T("deModelTip"))
 end
 function UI:New(parent)

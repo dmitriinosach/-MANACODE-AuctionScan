@@ -13,7 +13,7 @@ local function defaults(mode)
     local P = ns.Prospect
     local target = mode == "mill" and 39343 or 36932
     if not P.IsTarget(mode, target) then target = P.Targets(mode)[1] end
-    return {view = "raw", target = target, fee = 0.05, expansions = {wrath = true, bc = true, classic = true},
+    return {view = "raw", target = target, expansions = {wrath = true, bc = true, classic = true},
         skill = 0, buyMode = "margin", buyPercent = 0, buyPrice = 10000, collapsed = {}}
 end
 function UI:Load(mode)
@@ -23,7 +23,7 @@ function UI:Load(mode)
     if type(saved) ~= "table" then return state end
     if saved.view == "target" then state.view = "target" end
     if type(saved.target) == "number" and P.IsTarget(mode, saved.target) then state.target = saved.target end
-    if saved.fee == 0.15 then state.fee = 0.15 end
+    saved.fee = nil
     if type(saved.expansions) == "table" then
         local any = false
         for _, key in ipairs(expansionKeys) do any = any or saved.expansions[key] == true end
@@ -52,7 +52,8 @@ end
 function UI:Save()
     local db, s = ns.Store.DB(), self:S()
     db.prospectUI = type(db.prospectUI) == "table" and db.prospectUI or {}
-    db.prospectUI[self.mode] = {view = s.view, target = s.target, fee = s.fee, skill = s.skill,
+    for _, saved in pairs(db.prospectUI) do if type(saved) == "table" then saved.fee = nil end end
+    db.prospectUI[self.mode] = {view = s.view, target = s.target, skill = s.skill,
         expansions = {wrath = s.expansions.wrath, bc = s.expansions.bc, classic = s.expansions.classic},
         buyMode = s.buyMode, buyPercent = s.buyPercent, buyPrice = s.buyPrice}
 end
@@ -69,7 +70,6 @@ function UI:SetProps(props)
     local s = self:S()
     if props.view == "raw" or props.view == "target" then s.view = props.view end
     if props.target and ns.Prospect.IsTarget(self.mode, props.target) then s.target = props.target end
-    if props.fee == 0.05 or props.fee == 0.15 then s.fee = props.fee end
     self:Save()
     self:Render()
 end
@@ -90,12 +90,12 @@ function UI:SelectTarget(id)
 end
 function UI:Options()
     local s = self:S()
-    return {fee = s.fee, percent = s.buyMode == "margin" and s.buyPercent or 0,
+    return {fee = ns.Fee(), percent = s.buyMode == "margin" and s.buyPercent or 0,
         priceLimit = s.buyMode == "price" and s.buyPrice or nil}
 end
 function UI:Entries()
     local s = self:S()
-    return ns.Prospect.Rows(self.mode, {view = s.view, target = s.target, fee = s.fee,
+    return ns.Prospect.Rows(self.mode, {view = s.view, target = s.target, fee = ns.Fee(),
         expansions = s.expansions, skill = s.skill})
 end
 function UI:RefreshIDs()
@@ -124,7 +124,7 @@ function UI:Formula(entry)
     end
     if e.margin then
         lines[#lines + 1] = ns.T("deFormulaGross", K.Money(e.gross))
-        lines[#lines + 1] = ns.T("deFormulaFee", math.floor(self:S().fee * 100 + 0.5), K.Money(e.gross * self:S().fee))
+        lines[#lines + 1] = ns.T("deFormulaFee", math.floor(ns.Fee() * 100 + 0.5), K.Money(e.gross * ns.Fee()))
         lines[#lines + 1] = ns.T("pmFormulaCost", K.Money(e.cost))
         lines[#lines + 1] = ns.T("deFormulaMargin", K.Money(e.margin), ns.T("deMarginRate", e.percent or 0))
         if not e.exact then lines[#lines + 1] = ns.T("pmFormulaPartial", e.missing) end
@@ -161,9 +161,6 @@ function UI:NewTop(f)
     self.targetPicker = K.FamilyPicker:New(f, function(id) self:SelectTarget(id) end)
     self.targetPicker.frame:SetPoint("LEFT", self.viewSegment.frame, "RIGHT", 8, 0)
     K.Tooltip(self.targetPicker.frame, ns.T("pmViewTitle"), ns.T("pmViewTip"))
-    self.rawHint = K.Label(f, "", 0, 0, 300, "secondary")
-    self.rawHint:SetHeight(12)
-    self.rawHint:ClearAllPoints(); self.rawHint:SetPoint("LEFT", self.viewSegment.frame, "RIGHT", 10, 0)
     self.targetQuote = K.Label(f, "", 0, 0, 260, "secondary")
     self.targetQuote:SetHeight(12)
     self.targetQuote:ClearAllPoints(); self.targetQuote:SetPoint("LEFT", self.targetPicker.frame, "RIGHT", 10, 0)
@@ -227,13 +224,6 @@ function UI:NewFilters(parent)
         end
         self:Render()
     end)
-    caption(ns.T("deFilterFee"), 58)
-    self.feeSegment = K.Segment(parent, {{key = 0.05, label = ns.T("deFeeOption", 5)},
-        {key = 0.15, label = ns.T("deFeeOption", 15)}}, function(fee)
-        self:S().fee = fee; self:Save(); self:Render()
-    end)
-    put(self.feeSegment.frame, nil, 12)
-    K.Tooltip(self.feeSegment.frame, ns.T("tradeFeeTitle"), ns.T("tradeFeeTip"))
 end
 function UI:FilterSummary()
     local s, parts = self:S(), {}
@@ -243,7 +233,7 @@ function UI:FilterSummary()
     end
     parts[#parts + 1] = table.concat(names, ", ")
     if s.skill > 0 then parts[#parts + 1] = ns.T("pmSummarySkill", s.skill) end
-    parts[#parts + 1] = ns.T("tradeFee", math.floor(s.fee * 100 + 0.5))
+    parts[#parts + 1] = ns.T("auctionCommission", math.floor(ns.Fee() * 100 + 0.5))
     return table.concat(parts, " | ")
 end
 function UI:Layout()
@@ -255,7 +245,7 @@ function UI:Layout()
     local pickerWidth = math.max(150, math.min(230, width - 700))
     self.targetPicker.frame:SetWidth(pickerWidth); self.targetPicker.frame.text:SetWidth(pickerWidth - 34)
     if target then
-        self.targetPicker.frame:Show(); self.rawHint:Hide()
+        self.targetPicker.frame:Show()
         self.targetPicker:SetProps({families = P.TargetItems(self.mode), raw = s.target,
             headingKey = self.mode == "mill" and "pmPickPigment" or "pmPickGem"})
         local quote = ns.Markets.Quote(s.target)
@@ -267,14 +257,12 @@ function UI:Layout()
         self.targetQuote:Show()
     else
         self.targetPicker.frame:Hide(); self.targetPicker.cover:Hide()
-        self.rawHint:SetText(ns.T(self.mode == "mill" and "pmRawHintMill" or "pmRawHintProspect"))
-        self.rawHint:Show(); self.targetQuote:Hide()
+        self.targetQuote:Hide()
     end
     local open = self.filtersOpen
     self.filterToggle:SetActive(open)
     self.filterToggle:SetText(ns.T(open and "deFiltersOpen" or "deFilters"))
     for key, chip in pairs(self.expansionChecks) do chip:SetChecked(s.expansions[key]) end
-    self.feeSegment:Select(s.fee)
     if not self.skillEdit:HasFocus() then self.skillEdit:SetText(s.skill > 0 and tostring(s.skill) or "") end
     self.filters:ClearAllPoints()
     self.filters:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -30)
@@ -306,7 +294,7 @@ function UI:Controls()
     self.buyLabel:SetText(ns.T(price and "buyPriceLimit" or "deBuyThreshold"))
     self.buyUnit:SetText(ns.T(price and "deGold" or "dePercent"))
     self.buyModes:Select(self:S().buyMode)
-    for _, control in ipairs({self.buyModes, self.viewSegment, self.feeSegment}) do
+    for _, control in ipairs({self.buyModes, self.viewSegment}) do
         if ready then control:Enable() else control:Disable() end
     end
     if not ready then self.targetPicker.cover:Hide() end
@@ -341,10 +329,10 @@ function UI:Panel(selected)
     end
     self.outcomes:SetProps({source = selected.id, target = target, outputs = outputs})
     self.calcKeys[1]:SetText(ns.T("pmCalcGross"))
-    self.calcKeys[2]:SetText(ns.T("deCalcFee", math.floor(s.fee * 100 + 0.5)))
+    self.calcKeys[2]:SetText(ns.T("deCalcFee", math.floor(ns.Fee() * 100 + 0.5)))
     self.calcKeys[3]:SetText(ns.T("pmCalcCost", P.OPERATION))
     local values = {e.gross and K.Money(e.gross) or K.Money(nil),
-        e.gross and ("-" .. K.Money(e.gross * s.fee)) or K.Money(nil),
+        e.gross and ("-" .. K.Money(e.gross * ns.Fee())) or K.Money(nil),
         e.cost and ("-" .. K.Money(e.cost)) or K.Money(nil),
         K.Money(e.margin) .. (e.percent and (" " .. ns.T("deMarginRate", e.percent)) or "")}
     for i, label in ipairs(self.calcValues) do label:SetText(values[i]) end
@@ -384,6 +372,7 @@ function UI:FitPanel(withNote)
     self.scrollBody:ClearAllPoints()
     self.scrollBody:SetPoint("TOPLEFT", self.inspector.body, "TOPLEFT", 0, -40)
     self.scrollBody:SetPoint("BOTTOMRIGHT", self.inspector.body, "BOTTOMRIGHT", fits and -6 or -26, 4)
+    ns.TradeKit.PanelScrollBar(self.scrollBody, fits)
     self.panelChild:SetWidth(width); self.panelChild:SetHeight(height)
     self.calc:SetWidth(width)
     self.note:SetWidth(width - 24)
@@ -445,10 +434,11 @@ function UI:Render()
     self.headerBand:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -(top - 20))
     self.headerBand:SetPoint("TOPRIGHT", f, "TOPRIGHT", -290, -(top - 20))
     local lines = self:Lines(groups)
-    local visible = K.ListCapacity(f, top, 88, 24, #self.rows + #self.groups)
+    local bottom = self:PlacePreview()
+    local visible = K.ListCapacity(f, top, bottom, 24, #self.rows + #self.groups)
     self.scroll.frame:ClearAllPoints()
     self.scroll.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -top)
-    self.scroll.frame:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -272, 88)
+    self.scroll.frame:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -272, bottom)
     self.inspector:Place(-(top - 25))
     self.empty:ClearAllPoints(); self.empty:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -top - 10)
     self.empty:SetWidth(math.max(100, width - 20))
@@ -483,9 +473,9 @@ function UI:Render()
                 local ids = {}
                 for _, entry in ipairs(group.rows) do ids[#ids + 1] = entry.id end
                 header:SetProps({key = group.key, width = width, open = not s.collapsed[group.key], height = 24,
-                    name = self:GroupName(group), detail = self:GroupDetail(group), actionWidth = 70,
+                    name = self:GroupName(group), detail = self:GroupDetail(group), actionWidth = 26,
                     tip = ns.T("pmGroupTip"),
-                    actions = {{label = ns.T("tradeUpdate"), width = 62, tip = ns.T("pmGroupRefreshTip"),
+                    actions = {{label = ns.T("tradeUpdate"), icon = "refresh", tip = ns.T("pmGroupRefreshTip"),
                         disabled = busy,
                         fn = function() self:Refresh(P.PriceIDs(self.mode, ids)) end}}})
             end
@@ -498,11 +488,9 @@ function UI:Render()
     for _, entry in ipairs(rows) do ids[#ids + 1] = entry.id end
     local priced, fresh = P.PriceIDs(self.mode, ids), 0
     for _, id in ipairs(priced) do if P.Fresh(id) then fresh = fresh + 1 end end
-    self.progress:SetText(#rows > 0 and ns.T("pmResultCount", #rows) or ns.T("pmStartHint"))
-    self.status:ClearAllPoints()
-    self.status:SetPoint("BOTTOMLEFT", self.progress, "BOTTOMRIGHT", 10, 0)
-    self.status:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -276, 64)
-    self.status:SetText(ns.T("pmFresh", fresh, #priced))
+    self.statusText = #rows > 0 and (ns.T("pmResultCount", #rows) .. " | " .. ns.T("pmFresh", fresh, #priced))
+        or ns.T("pmStartHint")
+    ns.Trader.RenderStatus()
     if selected then self.inspector:SetProps({id = selected.id}); self.item:Show() else self.inspector:Clear() end
     self:Panel(selected)
     self.preview = selected and P.PurchasePlan(self.mode, selected.id, options)
@@ -549,11 +537,6 @@ function UI:NewTable(f)
 end
 function UI:NewBottom(f)
     local K = ns.TradeKit
-    self.progress = K.Label(f, "", 10, -34, 230, "secondary")
-    self.progress:SetHeight(12)
-    self.progress:ClearAllPoints(); self.progress:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 64)
-    self.status = K.Label(f, "", 250, -34, 400, "secondary")
-    self.status:SetHeight(12)
     self.buyModes = K.Segment(f, {{key = "margin", label = ns.T("buyModeMargin")},
         {key = "price", label = ns.T("buyModePrice")}}, function(mode)
         local s = self:S()
@@ -590,9 +573,21 @@ function UI:NewBottom(f)
     self.buy:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     self.buyPreview = K.Label(f, "", 0, 0, 300, "secondary")
     self.buyPreview:SetHeight(12)
-    self.buyPreview:ClearAllPoints()
-    self.buyPreview:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 40)
-    self.buyPreview:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 40)
+end
+function UI:PlacePreview()
+    local f, preview = self.frame, self.buyPreview
+    local used = 10 + (self.buyModes.frame:GetWidth() or 130) + 12 + (self.buyLabel:GetWidth() or 90) + 4
+        + (self.buyEdit:GetWidth() or 60) + 3 + (self.buyUnit:GetWidth() or 16) + 16
+    local free = (f:GetWidth() or 996) - 282 - (self.buy:GetWidth() or 170) - 10 - used
+    preview:ClearAllPoints()
+    if free >= 180 then
+        preview:SetPoint("LEFT", self.buyUnit, "RIGHT", 16, 0)
+        preview:SetPoint("RIGHT", self.buy, "LEFT", -10, 0)
+        return 40
+    end
+    preview:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 40)
+    preview:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 40)
+    return 64
 end
 function UI:NewPanel()
     local K = ns.TradeKit
@@ -617,7 +612,7 @@ function UI:NewPanel()
     k:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -30); k:SetWidth(258)
     self.calc, self.calcHeight = k, 330
     k:SetHeight(self.calcHeight)
-    self.calcTitle = K.Label(k, ns.T("pmCalcTitle", ns.Prospect.OPERATION), 12, -4, 236, "heading")
+    self.calcTitle = K.Label(k, ns.T("pmCalcTitle", ns.Prospect.OPERATION), 12, -4, 200, "heading")
     self.outcomes = K.OutcomeList:New(k)
     self.outcomes.frame:ClearAllPoints()
     self.outcomes.frame:SetPoint("TOPLEFT", k, "TOPLEFT", 12, -22)
@@ -665,8 +660,8 @@ function UI:NewPanel()
     self.netValue:SetPoint("TOPRIGHT", k, "TOPRIGHT", -4, -312)
     self.summary = K.Label(c, "", 12, -4, 222, "secondary")
     self.summary:SetHeight(300); self.summary:SetJustifyV("TOP")
-    local info = K.Button(panel, ns.T("tradeInfo"), 22, function() end, "quiet")
-    info:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -44)
+    local info = K.Button(k, ns.T("tradeInfo"), 18, function() end, "quiet")
+    info:SetHeight(18); info:SetPoint("TOPRIGHT", k, "TOPRIGHT", -4, -1)
     K.Tooltip(info, ns.T("pmModelTitle"), ns.T("pmModelTip"))
 end
 function UI:New(parent)

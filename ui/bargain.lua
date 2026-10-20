@@ -1,5 +1,5 @@
 local _, ns = ...
-local UI = {props = {kind = "buyout", fee = 0.05, percent = {buyout = 30, bid = 40}}, pool = {}, list = {}}
+local UI = {props = {kind = "buyout", percent = {buyout = 30, bid = 40}}, pool = {}, list = {}}
 ns.BargainUI = UI
 local function saved()
     local db = ns.Store.DB()
@@ -8,12 +8,13 @@ local function saved()
 end
 function UI:Save()
     local s, p = saved(), self.props
-    s.kind, s.fee, s.percent = p.kind, p.fee, {buyout = p.percent.buyout, bid = p.percent.bid}
+    s.fee = nil
+    s.kind, s.percent = p.kind, {buyout = p.percent.buyout, bid = p.percent.bid}
 end
 function UI:Restore()
     local s, p = saved(), self.props
-    if s.kind == "buyout" or s.kind == "bid" then p.kind = s.kind end
-    if s.fee == 0.05 or s.fee == 0.15 then p.fee = s.fee end
+    if s.kind == "buyout" or s.kind == "bid" or s.kind == "vendor" then p.kind = s.kind end
+    s.fee = nil
     if type(s.percent) == "table" then
         for _, kind in ipairs({"buyout", "bid"}) do
             local value = tonumber(s.percent[kind])
@@ -27,8 +28,7 @@ function UI:SetProps(props)
         if ns.Bargain.Active() then ns.Bargain.Cancel() end
         p.kind = props.kind
     end
-    if props.fee then p.fee = props.fee end
-    if type(props.percent) == "number" then p.percent[p.kind] = props.percent end
+    if type(props.percent) == "number" and p.percent[p.kind] then p.percent[p.kind] = props.percent end
     if props.key ~= nil then p.key = props.key end
     if self.frame then self:Save() end
     self:Render()
@@ -52,7 +52,7 @@ function UI:Controls()
     if B.Active() then
         local count, cost = ns.Buy.Offer()
         if ns.Buy.state.phase == "ready" and count > 0 then
-            self.act:SetText(ns.T(self.props.kind == "bid" and "bargainConfirmBid" or "bargainConfirmBuyout", K.Money(cost)))
+            self.act:SetText(ns.T(B.job.row.kind == "bid" and "bargainConfirmBid" or "bargainConfirmBuyout", K.Money(cost)))
             self.act:Enable()
         else
             self.act:SetText(ns.T("bargainSearching")); self.act:Disable()
@@ -63,9 +63,23 @@ function UI:Controls()
     else
         self.act:SetText(ns.T("bargainPick")); self.act:Disable()
     end
-    local busy = phase == "idle" and not ns.Buy.Active()
-    if busy then self.modes:Enable(); self.fees:Enable() else self.modes:Disable(); self.fees:Disable() end
-    self.edit:EnableMouse(busy)
+    local ready = phase == "idle" and not ns.Buy.Active()
+    if ready then self.modes:Enable() else self.modes:Disable() end
+    self.edit:EnableMouse(ready)
+end
+function UI.VendorTag(row)
+    local deal = row.vendor
+    local gain = deal and deal[row.kind]
+    if row.mode == "vendor" or not gain then return nil end
+    return ns.T("vendorTag", ns.TradeKit.MoneyShort(gain))
+end
+function UI.VendorTip(row)
+    local K, deal = ns.TradeKit, row.vendor
+    if not deal then return nil end
+    local lines = {ns.T("vendorTipPrice", K.Money(deal.unit), row.count, K.Money(deal.total))}
+    if deal.buyout then lines[#lines + 1] = ns.T("vendorTipBuyout", K.Money(row.buyout), K.Money(deal.buyout)) end
+    if deal.bid then lines[#lines + 1] = ns.T("vendorTipBid", K.Money(deal.nextBid), K.Money(deal.bid)) end
+    return table.concat(lines, "\n")
 end
 function UI:Find(key)
     for _, row in ipairs(self.list) do
@@ -76,7 +90,14 @@ end
 function UI:Cells(row, scanAge)
     local K = ns.TradeKit
     local cells = {count = {tostring(row.count)}, price = {K.Money(row.unit)}, market = {K.Money(row.ref), "secondary"}}
-    if row.kind == "bid" then
+    if row.mode == "vendor" then
+        cells.price = {K.Money(row.cost)}
+        cells.vendor = {K.Money(row.vendor.total), "secondary"}
+        cells.gain = {K.Money(row.profit), "positive"}
+        cells.deal = {row.kind == "bid" and ns.T("bargainDealBid", left(row.leftMax or 0)) or ns.T("bargainDealBuyout"),
+            "secondary"}
+        cells.age = {age(scanAge), "secondary"}
+    elseif row.kind == "bid" then
         cells.gain = {K.Money(row.profit), "positive"}
         cells.left = {ns.T("bargainLeft", left(row.leftMax or 0)), "secondary"}
         cells.buyout = {ns.T(row.hasBuyout and "bargainYes" or "bargainNo"), "secondary"}
@@ -87,26 +108,49 @@ function UI:Cells(row, scanAge)
     end
     return cells
 end
+function UI:Steps(entries)
+    local K = ns.TradeKit
+    for i, label in ipairs(self.stepLabels) do
+        local entry, value = entries[i], self.stepValues[i]
+        if entry then
+            local last = i == #entries
+            local y = -26 - (i - 1) * 14 - (last and 4 or 0)
+            label:ClearAllPoints(); label:SetPoint("TOPLEFT", self.steps, "TOPLEFT", 12, y)
+            value:ClearAllPoints(); value:SetPoint("TOPRIGHT", self.steps, "TOPRIGHT", -12, y)
+            label:SetText(entry[1]); value:SetText(entry[2])
+            label:SetTextColor(unpack(K.theme[last and "text" or "secondary"]))
+            value:SetTextColor(unpack(K.theme[entry[3] or "text"]))
+            label:Show(); value:Show()
+        else label:Hide(); value:Hide() end
+    end
+end
 function UI:Panel(row)
     local K, r = ns.TradeKit, row.resale
     local bid = row.kind == "bid"
-    local labels = {
-        ns.T("bargainStepMarket"), ns.T("bargainStepGross", row.count),
-        ns.T("bargainStepFee", math.floor(self.props.fee * 100 + 0.5)),
-        ns.T(r.depositKnown and "bargainStepDeposit" or "bargainStepDepositMin"),
-        ns.T("bargainStepRevenue"), ns.T(bid and "bargainStepBid" or "bargainStepBuyout"),
-        ns.T("bargainStepProfit"),
-    }
-    local values = {K.Money(row.ref), K.Money(r.gross), "-" .. K.Money(r.commission), "-" .. K.Money(r.deposit),
-        K.Money(r.revenue), "-" .. K.Money(row.cost), K.Money(row.profit)}
-    for i, label in ipairs(self.stepLabels) do label:SetText(labels[i]) end
-    for i, value in ipairs(self.stepValues) do
-        value:SetText(values[i])
-        local tone = (i == 3 or i == 4 or i == 6) and "secondary" or "text"
-        if i == 7 then tone = row.profit > 0 and "positive" or "negative" end
-        value:SetTextColor(unpack(K.theme[tone]))
+    local result = row.profit > 0 and "positive" or "negative"
+    if row.mode == "vendor" then
+        self:Steps({
+            {ns.T("vendorStepUnit"), K.Money(row.vendor.unit)},
+            {ns.T("vendorStepTotal", row.count), K.Money(row.vendor.total)},
+            {ns.T(bid and "bargainStepBid" or "bargainStepBuyout"), "-" .. K.Money(row.cost), "secondary"},
+            {ns.T("bargainStepProfit"), K.Money(row.profit), result},
+        })
+        self.discountLabel:SetText(ns.T("bargainStepMarket"))
+        self.discount:SetText(K.Money(row.ref))
+    else
+        self:Steps({
+            {ns.T("bargainStepMarket"), K.Money(row.ref)},
+            {ns.T("bargainStepGross", row.count), K.Money(r.gross)},
+            {ns.T("bargainStepFee", math.floor(ns.Fee() * 100 + 0.5)), "-" .. K.Money(r.commission), "secondary"},
+            {ns.T(r.depositKnown and "bargainStepDeposit" or "bargainStepDepositMin"), "-" .. K.Money(r.deposit),
+                "secondary"},
+            {ns.T("bargainStepRevenue"), K.Money(r.revenue)},
+            {ns.T(bid and "bargainStepBid" or "bargainStepBuyout"), "-" .. K.Money(row.cost), "secondary"},
+            {ns.T("bargainStepProfit"), K.Money(row.profit), result},
+        })
+        self.discountLabel:SetText(ns.T("bargainStepDiscount"))
+        self.discount:SetText(ns.T("bargainDiscount", math.floor(row.discount + 0.5)))
     end
-    self.discount:SetText(ns.T("bargainDiscount", math.floor(row.discount + 0.5)))
     local levels, summary = ns.Bargain.Depth(row, #self.depthLines)
     self.depthSummary:SetText(ns.T("bargainDepthSummary", summary.units, summary.lots, summary.sellers))
     for i, line in ipairs(self.depthLines) do
@@ -117,7 +161,8 @@ function UI:Panel(row)
             line.price:Show(); line.units:Show()
         else line.price:Hide(); line.units:Hide() end
     end
-    self.history:SetText(ns.T(row.history and "bargainHistoryYes" or "bargainHistoryNo"))
+    if row.mode == "vendor" then self.history:SetText("")
+    else self.history:SetText(ns.T(row.history and "bargainHistoryYes" or "bargainHistoryNo")) end
 end
 function UI:Render()
     if not self.frame then return end
@@ -132,12 +177,17 @@ function UI:Render()
             label:SetWidth(column[2] - 6); label:Show()
         else label:Hide() end
     end
-    self.headers.price:SetText(ns.T(p.kind == "bid" and "bargainColBid" or "bargainColBuyout"))
+    local vendor = p.kind == "vendor"
+    self.headers.price:SetText(ns.T(vendor and "bargainColLot" or (p.kind == "bid" and "bargainColBid" or "bargainColBuyout")))
     self.cover.price.tipTitle = self.headers.price:GetText()
-    self.cover.price.tip = ns.T(p.kind == "bid" and "bargainTipBid" or "bargainTipBuyout")
-    local rows, info = B.Rows(p.kind, {percent = p.percent[p.kind], fee = p.fee})
+    self.cover.price.tip = ns.T(vendor and "bargainTipLot" or (p.kind == "bid" and "bargainTipBid" or "bargainTipBuyout"))
+    self.cover.gain.tip = ns.T(vendor and "bargainTipVendorGain" or "bargainTipGain")
+    for _, part in ipairs({self.thresholdLabel, self.edit, self.thresholdUnit}) do
+        if vendor then part:Hide() else part:Show() end
+    end
+    local rows, info = B.Rows(p.kind, {percent = p.percent[p.kind], fee = ns.Fee()})
     self.list = rows
-    local visible = K.ListCapacity(self.frame, 62, 66, 24, #self.pool)
+    local visible = K.ListCapacity(self.frame, 62, 40, 24, #self.pool)
     local offset = self.scroll:SetRange(#rows, visible)
     local selected = self:Find(p.key) or rows[1]
     self.selected = selected
@@ -146,9 +196,11 @@ function UI:Render()
         local row = i <= visible and rows[offset + i]
         if row then
             local copies = row.copies > 1 and ("\n" .. ns.T("bargainRowCopies", row.copies)) or ""
+            local vendorTip = UI.VendorTip(row)
+            if vendorTip then copies = copies .. "\n\n" .. vendorTip end
             view.frame:ClearAllPoints(); view.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, -62 - (i - 1) * 24)
             view:SetProps({key = row.key, id = row.item, width = width, mode = p.kind, cells = self:Cells(row, scanAge),
-                active = selected == row, tip = ns.T("bargainRowTip") .. copies,
+                tag = UI.VendorTag(row), active = selected == row, tip = ns.T("bargainRowTip") .. copies,
                 actions = {{label = ns.T(row.kind == "bid" and "bargainActBid" or "bargainActBuyout"),
                     tip = ns.T(row.kind == "bid" and "bargainActBidTip" or "bargainActBuyoutTip"),
                     disabled = not (ns.Scan.state.open and ns.Scan.state.phase == "idle"),
@@ -164,18 +216,34 @@ function UI:Render()
         self.steps:Hide()
     end
     self.modes:Select(p.kind)
-    self.fees:Select(p.fee)
-    self.edit:SetText(tostring(p.percent[p.kind]))
+    self.edit:SetText(tostring(p.percent[p.kind] or ""))
     local text
     if not info.scan then text = ns.T("bargainNoScan")
-    elseif #rows == 0 then text = ns.T("bargainEmpty", p.percent[p.kind])
+    elseif #rows == 0 then text = vendor and ns.T("bargainVendorEmpty") or ns.T("bargainEmpty", p.percent[p.kind])
     else text = ns.T("bargainStatus", age(scanAge), #info.scan.lots, info.groups, info.total) end
-    self.status:SetText(text)
-    local note = p.kind == "bid" and ns.T("bargainBidNote", info.hidden or 0) or ns.T("bargainBuyoutNote")
+    local note = vendor and ns.T("bargainVendorNote", info.hidden or 0)
+        or (p.kind == "bid" and ns.T("bargainBidNote", info.hidden or 0) or ns.T("bargainBuyoutNote"))
     if info.scan and scanAge > 3600 then note = ns.T("bargainStale") .. " " .. note end
-    self.note:SetText(note)
-    self.status:SetWidth(width - 20); self.note:SetWidth(width - 20)
+    self.statusText = text
+    if info.scan and scanAge > 3600 then self.statusText = self.statusText .. " | " .. ns.T("bargainStale") end
+    K.Tooltip(self.modes.frame, ns.T("bargainTitle"), note)
+    ns.Trader.RenderStatus()
+    self:FitPanel()
     self:Controls()
+end
+function UI:FitPanel()
+    local room = (self.inspector.body:GetHeight() or 0) - 44
+    local fits = room <= 0 or self.panelHeight <= room
+    self.scrollBody:ClearAllPoints()
+    self.scrollBody:SetPoint("TOPLEFT", self.inspector.body, "TOPLEFT", 0, -40)
+    self.scrollBody:SetPoint("BOTTOMRIGHT", self.inspector.body, "BOTTOMRIGHT", fits and -6 or -26, 4)
+    ns.TradeKit.PanelScrollBar(self.scrollBody, fits)
+    local width = fits and 258 or 236
+    self.panelChild:SetWidth(width)
+    for _, label in ipairs(self.stepLabels) do label:SetWidth(width - 130) end
+    self.discountLabel:SetWidth(width - 130)
+    self.depthSummary:SetWidth(width - 24); self.history:SetWidth(width - 24)
+    self.panelChild:SetHeight(self.panelHeight)
 end
 function UI:Act(key)
     local row = self:Find(key)
@@ -202,10 +270,11 @@ function UI:New(parent)
     f:SetAllPoints(parent)
     self.title = K.Label(f, ns.T("bargainTitle"), 10, -9, 120, "heading")
     self.title:SetHeight(14)
-    self.modes = K.Segment(f, {{key = "buyout", label = ns.T("bargainModeBuyout")}, {key = "bid", label = ns.T("bargainModeBid")}},
-        function(kind) self:SetProps({kind = kind}) end)
+    self.modes = K.Segment(f, {{key = "buyout", label = ns.T("bargainModeBuyout")}, {key = "bid", label = ns.T("bargainModeBid")},
+        {key = "vendor", label = ns.T("bargainModeVendor")}}, function(kind) self:SetProps({kind = kind}) end)
     self.modes.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 120, -5)
-    K.Tooltip(self.modes.frame, ns.T("bargainTitle"), ns.T("bargainModeBuyoutTip") .. "\n\n" .. ns.T("bargainModeBidTip"))
+    K.Tooltip(self.modes.frame, ns.T("bargainTitle"), ns.T("bargainModeBuyoutTip") .. "\n\n" .. ns.T("bargainModeBidTip")
+        .. "\n\n" .. ns.T("bargainModeVendorTip"))
     local info = K.Button(f, ns.T("tradeInfo"), 22, function() end, "quiet")
     info:SetPoint("LEFT", self.modes.frame, "RIGHT", 8, 0)
     K.Tooltip(info, ns.T("bargainNav"), ns.T("bargainInfo"))
@@ -218,7 +287,8 @@ function UI:New(parent)
         {"price", "bargainColBuyout", "bargainTipBuyout"}, {"market", "bargainColMarket", "bargainTipMarket"},
         {"discount", "bargainColDiscount", "bargainTipDiscount"}, {"revenue", "bargainColRevenue", "bargainTipRevenue"},
         {"age", "bargainColAge", "bargainTipAge"}, {"gain", "bargainColGain", "bargainTipGain"},
-        {"left", "bargainColLeft", "bargainTipLeft"}, {"buyout", "bargainColHasBuyout", "bargainTipHasBuyout"}}
+        {"left", "bargainColLeft", "bargainTipLeft"}, {"buyout", "bargainColHasBuyout", "bargainTipHasBuyout"},
+        {"vendor", "bargainColVendor", "bargainTipVendor"}, {"deal", "bargainColDeal", "bargainTipDeal"}}
     for _, entry in ipairs(entries) do
         local label = K.Label(f, ns.T(entry[2]), 0, -40, 100)
         label:SetHeight(12)
@@ -231,7 +301,7 @@ function UI:New(parent)
             self.cover[entry[1]] = button
         end
     end
-    self.scroll = K.TableScroll(f, function() self:Render() end, 62, 66, 24)
+    self.scroll = K.TableScroll(f, function() self:Render() end, 62, 40, 24)
     for i = 1, 30 do
         local row = K.BargainRow:New(f, function(key) self:SetProps({key = key}) end)
         row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -62 - (i - 1) * 24)
@@ -239,13 +309,10 @@ function UI:New(parent)
         self.pool[i] = row
         self.scroll:Wheel(row.frame)
     end
-    self.fees = K.Segment(f, {{key = 0.05, label = ns.T("deFeeOption", 5)}, {key = 0.15, label = ns.T("deFeeOption", 15)}},
-        function(fee) self:SetProps({fee = fee}) end)
-    self.fees.frame:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 4)
-    K.Tooltip(self.fees.frame, ns.T("tradeFeeTitle"), ns.T("tradeFeeTip"))
     local label = K.Label(f, ns.T("bargainThreshold"), 0, 0, 70, "secondary")
     label:SetHeight(12)
-    label:ClearAllPoints(); label:SetPoint("LEFT", self.fees.frame, "RIGHT", 14, 0)
+    self.thresholdLabel = label
+    label:ClearAllPoints(); label:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 10)
     self.edit = K.Edit(f, 44)
     self.edit:SetPoint("LEFT", label, "RIGHT", 4, 0)
     K.LiveEdit(self.edit, function(box) self:ApplyPercent(box:GetText()) end, 0.8)
@@ -253,47 +320,51 @@ function UI:New(parent)
     local unit = K.Label(f, ns.T("bargainPercent"), 0, 0, 16, "secondary")
     unit:SetHeight(12)
     unit:ClearAllPoints(); unit:SetPoint("LEFT", self.edit, "RIGHT", 3, 0)
-    self.status = K.Label(f, "", 0, 0, 440, "secondary")
-    self.status:ClearAllPoints(); self.status:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 34); self.status:SetHeight(12)
-    self.note = K.Label(f, "", 0, 0, 440, "secondary")
-    self.note:ClearAllPoints(); self.note:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 48); self.note:SetHeight(12)
+    self.thresholdUnit = unit
     self.act = K.Button(f, ns.T("bargainPick"), 210, function() if self.selected then self:Act(self.selected.key) end end, "main")
     self.act:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     self.inspector = K.Inspector:New(f)
     local panel = self.inspector.body
+    self.scrollBody = ns.NewFrame("ScrollFrame", "ManaCodeBargainPanelScroll", panel, "UIPanelScrollFrameTemplate")
+    self.scrollBody.scrollBarHideable = 1
+    self.panelChild = ns.NewFrame("Frame", nil, self.scrollBody)
+    self.panelHeight = 304
+    self.panelChild:SetWidth(258); self.panelChild:SetHeight(self.panelHeight)
+    self.scrollBody:SetScrollChild(self.panelChild)
+    self.panelChild:EnableMouseWheel(true)
+    self.panelChild:SetScript("OnMouseWheel", function(_, delta)
+        if ScrollFrameTemplate_OnMouseWheel then ScrollFrameTemplate_OnMouseWheel(self.scrollBody, delta) end
+    end)
+    panel = self.panelChild
     self.steps = ns.NewFrame("Frame", nil, panel)
     self.steps:SetAllPoints(panel)
-    K.Label(self.steps, ns.T("bargainPanelSteps"), 12, -44, 200, "heading")
+    K.Label(self.steps, ns.T("bargainPanelSteps"), 12, -4, 200, "heading")
     local help = K.Button(self.steps, ns.T("tradeInfo"), 22, function() end, "quiet")
-    help:SetPoint("TOPRIGHT", self.steps, "TOPRIGHT", -12, -40)
+    help:SetPoint("TOPRIGHT", self.steps, "TOPRIGHT", -12, 0)
     K.Tooltip(help, ns.T("bargainPanelSteps"), ns.T("bargainStepsTip"))
     self.stepLabels, self.stepValues = {}, {}
     for i = 1, 7 do
-        local y = -66 - (i - 1) * 14 - (i == 7 and 4 or 0)
-        local name = K.Label(self.steps, "", 12, y, 150, i == 7 and nil or "secondary"); name:SetHeight(12)
-        local value = K.Label(self.steps, "", 0, y, 110); value:SetHeight(12); value:SetJustifyH("RIGHT")
-        value:ClearAllPoints(); value:SetPoint("TOPRIGHT", self.steps, "TOPRIGHT", -12, y)
+        local y = -26 - (i - 1) * 14 - (i == 7 and 4 or 0)
+        local name, value = K.ValueRow(self.steps, "", y, 130, 100)
         self.stepLabels[i], self.stepValues[i] = name, value
     end
-    local discountName = K.Label(self.steps, ns.T("bargainStepDiscount"), 12, -172, 150, "secondary"); discountName:SetHeight(12)
-    self.discount = K.Label(self.steps, "", 0, -172, 110); self.discount:SetHeight(12); self.discount:SetJustifyH("RIGHT")
-    self.discount:ClearAllPoints(); self.discount:SetPoint("TOPRIGHT", self.steps, "TOPRIGHT", -12, -172)
-    K.Rule(self.steps, -190)
-    local depthTitle = K.Label(self.steps, ns.T("bargainPanelDepth"), 12, -198, 200, "heading")
+    self.discountLabel, self.discount = K.ValueRow(self.steps, ns.T("bargainStepDiscount"), -132, 130, 100)
+    K.Rule(self.steps, -150)
+    local depthTitle = K.Label(self.steps, ns.T("bargainPanelDepth"), 12, -158, 200, "heading")
     depthTitle:SetHeight(14)
     local depthHelp = K.Button(self.steps, ns.T("tradeInfo"), 22, function() end, "quiet")
-    depthHelp:SetPoint("TOPRIGHT", self.steps, "TOPRIGHT", -12, -194)
+    depthHelp:SetPoint("TOPRIGHT", self.steps, "TOPRIGHT", -12, -154)
     K.Tooltip(depthHelp, ns.T("bargainPanelDepth"), ns.T("bargainDepthTip"))
-    self.depthSummary = K.Label(self.steps, "", 12, -218, 240, "secondary"); self.depthSummary:SetHeight(12)
+    self.depthSummary = K.Label(self.steps, "", 12, -178, 240, "secondary"); self.depthSummary:SetHeight(12)
     self.depthLines = {}
     for i = 1, 6 do
-        local y = -236 - (i - 1) * 14
+        local y = -196 - (i - 1) * 14
         local price = K.Label(self.steps, "", 12, y, 110); price:SetHeight(12)
         local units = K.Label(self.steps, "", 0, y, 120, "secondary"); units:SetHeight(12); units:SetJustifyH("RIGHT")
         units:ClearAllPoints(); units:SetPoint("TOPRIGHT", self.steps, "TOPRIGHT", -12, y)
         self.depthLines[i] = {price = price, units = units}
     end
-    self.history = K.Label(self.steps, "", 12, -324, 240, "secondary"); self.history:SetHeight(12)
+    self.history = K.Label(self.steps, "", 12, -284, 240, "secondary"); self.history:SetHeight(12)
     f:HookScript("OnShow", function() self:Render() end)
     f:SetScript("OnSizeChanged", function() self:Render() end)
     ns.Bargain.onChange = function()

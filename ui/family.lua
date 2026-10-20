@@ -1,5 +1,5 @@
 local _, ns = ...
-local UI = {props = {id = 36919, page = 1, days = 7, fee = 0.05}, rows = {}, groups = {}, opened = {[36919] = true},
+local UI = {props = {id = 36919, page = 1, days = 7}, rows = {}, groups = {}, opened = {[36919] = true},
     collapsed = {}, expansions = {wrath = true, bc = false}, batchState = {make = {}, ignore = {}, craftAll = false, owned = false}}
 ns.FamilyUI = UI
 function UI:SetProps(props)
@@ -8,7 +8,7 @@ function UI:SetProps(props)
         self.props.id = props.family
         self.focus = props.family
     end
-    for key, value in pairs(props) do if key ~= "family" then self.props[key] = value end end
+    for key, value in pairs(props) do if key ~= "family" and key ~= "fee" then self.props[key] = value end end
     local family = ns.gemByItem[self.props.id]
     if family then self.opened[family.raw] = true end
     self:Render()
@@ -79,14 +79,14 @@ function UI:GroupProps(group, width, fee)
             if margin and (not best or margin > best) then best = margin end
         end
     end
-    return {key = group.key, width = width, open = not self.collapsed[group.key], actionWidth = 190,
+    return {key = group.key, width = width, open = not self.collapsed[group.key], actionWidth = 50,
         name = ns.T("craftGroupName", ns.T(group.expansion == "bc" and "craftBC" or "craftWrath"),
             ns.T("familyQuality" .. group.quality)),
         detail = ns.T("craftGroupDetail", families, known, total, K.Money(best)) .. " | " .. age(F.GroupAge(group)),
         tag = "", tip = ns.T("craftGroupTip"),
-        actions = {{label = ns.T("craftScanGroup"), width = 118, tip = ns.T("craftGroupTip"),
+        actions = {{label = ns.T("craftScanGroup"), icon = "refresh", tip = ns.T("craftScanGroupTip"),
                 fn = function(key) F.CompleteGroup(key, K.ScanMode()); self:Render() end},
-            {label = ns.T("hiddenHide"), width = 64, tip = ns.T("hiddenHideTip"),
+            {label = ns.T("hiddenHide"), icon = "hide", tip = ns.T("hiddenHideTip"),
                 fn = function(key) ns.Hidden.SetGroup(key, true); self:Render() end}}}
 end
 function UI:FamilyProps(family, width, fee, columns)
@@ -100,13 +100,11 @@ function UI:FamilyProps(family, width, fee, columns)
     if not columns.best and bestID then
         detail = ns.T("craftBestCutRow", ns.Markets.Name(bestID), K.Money(bestQuote and bestQuote.price)) .. " | " .. detail
     end
-    local actions = {{label = ns.T("craftScanRow"), tip = ns.T("craftScanFamilyTip"),
-        fn = function(id) F.Complete(id, K.ScanMode()); self:Render() end}}
-    if columns.action[2] >= 190 then
-        actions[#actions + 1] = {label = ns.T("tradeBuy"), tip = ns.T("craftBuyRaw"), fn = function(id) ns.Trader.OpenBuy(id) end}
-    end
-    actions[#actions + 1] = {label = ns.T("hiddenHide"), tip = ns.T("hiddenHideTip"),
-        fn = function(id) ns.Hidden.Set(id, true); self:Render() end}
+    local actions = {{label = ns.T("craftScanRow"), icon = "refresh", tip = ns.T("craftScanFamilyTip"),
+        fn = function(id) F.Complete(id, K.ScanMode()); self:Render() end},
+        {label = ns.T("tradeBuy"), icon = "buy", tip = ns.T("craftBuyRaw"), fn = function(id) ns.Trader.OpenBuy(id) end},
+        {label = ns.T("hiddenHide"), icon = "hide", tip = ns.T("hiddenHideTip"),
+            fn = function(id) ns.Hidden.Set(id, true); self:Render() end}}
     return {id = raw, quality = family.quality, width = width, depth = 0, expandable = true, opened = self.opened[raw],
         active = raw == self.props.id, detail = detail, price = q and q.price, change = F.Change(raw),
         best = bestID, bestPrice = bestQuote and bestQuote.price, margin = bestMargin,
@@ -125,9 +123,9 @@ function UI:CutProps(id, family, width, fee)
         margin = margin, percent = margin and raw and raw.price and raw.price > 0 and margin / raw.price * 100 or nil,
         units = q and q.units, state = ns.T(state), unlearned = known == false,
         stateTone = known == true and "positive" or (known == false and "negative" or "secondary"),
-        actions = {{label = ns.T("craftScanRow"), tip = ns.T("craftScanRowTip"),
+        actions = {{label = ns.T("craftScanRow"), icon = "refresh", tip = ns.T("craftScanRowTip"),
                 fn = function(item) ns.Batch.Complete({item}, K.ScanMode()); self:Render() end},
-            {label = ns.T("hiddenHide"), tip = ns.T("hiddenHideTip"),
+            {label = ns.T("hiddenHide"), icon = "hide", tip = ns.T("hiddenHideTip"),
                 fn = function(item) ns.Hidden.Set(item, true); self:Render() end}}}
 end
 function UI:Render()
@@ -146,7 +144,7 @@ function UI:Render()
     self.sorter:Mark()
     self.tableWidth = width
     for key, chip in pairs(self.expansionChips) do chip:SetChecked(self.expansions[key]) end
-    local lines, hidden = self:Lines(p.fee)
+    local lines, hidden = self:Lines(ns.Fee())
     if self.focus then
         for i, line in ipairs(lines) do
             if line.family and line.family.raw == self.focus and not line.hidden then self.scroll.offset = i - 1; break end
@@ -170,7 +168,7 @@ function UI:Render()
             local header = self.groups[usedGroups]
             if header then
                 header.frame:ClearAllPoints(); header.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, y)
-                local props = self:GroupProps(line.group, width, p.fee)
+                local props = self:GroupProps(line.group, width, ns.Fee())
                 if line.hidden then
                     props.open, props.detail = true, ns.T("craftHiddenGroup", props.detail)
                     props.actions = {{label = ns.T("hiddenRestore"), width = 64, tip = ns.T("hiddenRestoreTip"),
@@ -183,8 +181,8 @@ function UI:Render()
             local row = self.rows[usedRows]
             if row then
                 row.frame:ClearAllPoints(); row.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, y)
-                local props = line.cut and self:CutProps(line.cut, line.family, width, p.fee)
-                    or self:FamilyProps(line.family, width, p.fee, columns)
+                local props = line.cut and self:CutProps(line.cut, line.family, width, ns.Fee())
+                    or self:FamilyProps(line.family, width, ns.Fee(), columns)
                 if line.hidden then
                     props.expandable, props.opened = false, false
                     props.detail = props.detail .. ns.T("hiddenRowNote")
@@ -197,7 +195,6 @@ function UI:Render()
     end
     for i = usedRows + 1, #self.rows do self.rows[i].frame:Hide() end
     for i = usedGroups + 1, #self.groups do self.groups[i].frame:Hide() end
-    self.feeSegment:Select(p.fee)
     self.inspector:SetProps({id = p.id})
     local q = ns.Markets.Quote(p.id)
     self.current:SetText(ns.T("familyCurrentPrice", K.Money(q and q.price)) .. " | " .. F.Recipe(p.id))
@@ -218,7 +215,7 @@ end
 function UI:BatchRecipe(id)
     local family = ns.gemByItem[id]
     if not family then return nil end
-    local cut = id ~= family.raw and id or ns.Family.Best(family, self.props.fee)
+    local cut = id ~= family.raw and id or ns.Family.Best(family, ns.Fee())
     if not cut then
         for _, member in ipairs(family.members) do
             if member ~= family.raw and ns.Family.Known(member) ~= false and not ns.Hidden.Is(member) then cut = member; break end
@@ -230,7 +227,6 @@ end
 function UI:RenderBatch()
     local recipe, cut = self:BatchRecipe(self.props.id)
     local state = self.batchState
-    state.fee = self.props.fee
     self.batch:SetProps({recipe = recipe, options = state, known = cut and ns.Family.Known(cut) or nil,
         change = function(key, value, id)
             if key == "make" then state.make[id] = value
@@ -241,10 +237,8 @@ function UI:RenderBatch()
         buy = function(id, need) ns.Trader.OpenBuy(id, need) end})
 end
 function UI:Controls()
-    if not self.update then return end
-    local phase = ns.Scan.state.phase
-    if phase == "idle" then self.update:Show() else self.update:Hide() end
-    if phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
+    if not self.scan then return end
+    if ns.Scan.state.phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
 end
 function UI:New(parent)
     local K = ns.TradeKit
@@ -269,10 +263,10 @@ function UI:New(parent)
     local hasBC = false
     for _, family in ipairs(ns.gemFamilies) do if family.expansion == "bc" then hasBC = true end end
     if not hasBC then self.expansionChips.bc:Disable(); K.Tooltip(self.expansionChips.bc, ns.T("craftBC"), ns.T("craftBCTip")) end
-    self.scan = K.Button(f, ns.T("craftListScan"), 150, function()
+    self.scan = K.Button(f, ns.T("craftListScan"), 170, function()
         ns.Family.CompleteAll(self.expansions, K.ScanMode()); self:Render()
     end, "main")
-    self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -282, -3)
+    self.scan:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     K.Tooltip(self.scan, ns.T("craftListScan"), ns.T("familyScanAllTip"))
     self.headerBand = K.TableHeader(f, -42)
     self.headers = {}
@@ -300,15 +294,8 @@ function UI:New(parent)
     self.spoiler.text:ClearAllPoints(); self.spoiler.text:SetPoint("LEFT", self.spoiler, "LEFT", 10, 0)
     self.spoiler:Hide()
     K.Tooltip(self.spoiler, ns.T("hiddenSection"), ns.T("hiddenSpoilerTip"))
-    self.feeSegment = K.Segment(f, {{key = 0.05, label = ns.T("deFeeOption", 5)}, {key = 0.15, label = ns.T("deFeeOption", 15)}},
-        function(fee) self:SetProps({fee = fee}) end)
-    self.feeSegment.frame:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 4)
-    K.Tooltip(self.feeSegment.frame, ns.T("tradeFeeTitle"), ns.T("tradeFeeTip"))
     self.buy = K.Button(f, ns.T("tradeBuy"), 84, function() ns.Trader.OpenBuy(self.props.id) end)
-    self.buy:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
-    self.update = K.Button(f, ns.T("tradeUpdate"), 84, function() ns.Markets.Scan(self.props.id) end)
-    self.update:SetPoint("RIGHT", self.buy, "LEFT", -6, 0)
-    K.Tooltip(self.update, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
+    self.buy:SetPoint("RIGHT", self.scan, "LEFT", -6, 0)
     self.inspector = K.Inspector:New(f)
     local h = self.inspector.body
     self.historyItem = self.inspector.item

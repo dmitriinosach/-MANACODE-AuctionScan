@@ -18,6 +18,9 @@ K.theme = {
         color = {1, 0.80, 0.30}, lit = {1, 0.93, 0.62}, press = {0.78, 0.58, 0.18}},
     marble = "Interface\\PaperDollInfoFrame\\UI-Character-CharacterTab-L1",
     highlight = "Interface\\QuestFrame\\UI-QuestTitleHighlight",
+    actionIcons = {refresh = {"Interface\\PaperDollInfoFrame\\UI-GearManager-Undo"},
+        buy = {"Interface\\Icons\\INV_Misc_Coin_01", 0.08, 0.92, 0.08, 0.92},
+        hide = {"Interface\\Buttons\\UI-GroupLoot-Pass-Up"}},
     text = {0.96, 0.93, 0.87}, secondary = {0.74, 0.68, 0.58}, off = {0.52, 0.47, 0.40},
     gold = {1, 0.82, 0}, accent = {0.95, 0.78, 0.28},
     positive = {0.40, 0.82, 0.48}, negative = {0.94, 0.42, 0.34},
@@ -102,6 +105,9 @@ function K.StyleButton(b)
     b:SetBackdropColor(unpack(fill))
     b:SetBackdropBorderColor(unpack(edge))
     b.text:SetTextColor(unpack(b.btnDisabled and K.theme.off or text))
+    if rawget(b, "glyph") then
+        b.glyph:SetDesaturated(b.btnDisabled); b.glyph:SetAlpha(b.btnDisabled and 0.5 or 1)
+    end
     if rawget(b, "navLine") then
         if b.active then b.navLine:Show() else b.navLine:Hide() end
     end
@@ -109,8 +115,8 @@ function K.StyleButton(b)
         b.dot:SetVertexColor(unpack(b.btnDisabled and K.theme.off or (b.active and K.theme.accent or K.theme.edge)))
     end
 end
-function K.Button(parent, text, width, fn, kind)
-    local b = ns.NewFrame("Button", nil, parent)
+function K.Button(parent, text, width, fn, kind, template)
+    local b = ns.NewFrame("Button", nil, parent, template)
     b.kind, b.onClick = kind, fn
     b.active, b.btnDisabled, b.hovered, b.pressed = false, false, false, false
     b:SetWidth(width)
@@ -138,10 +144,35 @@ function K.Button(parent, text, width, fn, kind)
     b:SetScript("OnLeave", function(self) self.hovered, self.pressed = false, false; K.StyleButton(self) end)
     b:SetScript("OnMouseDown", function(self) self.pressed = not self.btnDisabled; K.StyleButton(self) end)
     b:SetScript("OnMouseUp", function(self) self.pressed = false; K.StyleButton(self) end)
-    b:SetScript("OnClick", function(self, button)
+    b:SetScript(template and "PreClick" or "OnClick", function(self, button)
         if not self.btnDisabled and self.onClick then self.onClick(self, button) end
     end)
     K.StyleButton(b)
+    return b
+end
+function K.SetGlyph(b, key)
+    local icon = key and K.theme.actionIcons[key]
+    if not icon then
+        if rawget(b, "glyph") then b.glyph:Hide() end
+        return false
+    end
+    if not rawget(b, "glyph") then
+        b.glyph = b:CreateTexture(nil, "ARTWORK")
+        b.glyph:SetWidth(14); b.glyph:SetHeight(14)
+        b.glyph:SetPoint("CENTER", b, "CENTER", 0, 0)
+    end
+    b.glyph:SetTexture(icon[1])
+    b.glyph:SetTexCoord(icon[2] or 0, icon[3] or 1, icon[4] or 0, icon[5] or 1)
+    b.glyph:Show()
+    b:SetText(""); b:SetWidth(22)
+    K.StyleButton(b)
+    return true
+end
+function K.IconButton(parent, key, fn, title, tip)
+    local b = K.Button(parent, "", 22, fn, "quiet")
+    b:SetHeight(20)
+    K.SetGlyph(b, key)
+    K.Tooltip(b, title, tip)
     return b
 end
 function K.AuctionChrome(parent, root)
@@ -178,7 +209,59 @@ function K.AuctionChrome(parent, root)
     chrome.resume:SetHeight(20)
     chrome.resume:SetPoint("RIGHT", chrome.stop, "LEFT", -6, 0)
     chrome.stop:Hide(); chrome.resume:Hide()
+    chrome.progress = K.Progress(root)
+    chrome.progress.frame:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 190, 5)
+    chrome.progress.frame:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -212, 5)
     return chrome
+end
+function K.Progress(parent)
+    local bar = {shown = 0, active = false, visible = false, phase = 0}
+    bar.frame = ns.NewFrame("Frame", nil, parent)
+    bar.frame:SetHeight(3)
+    local track = bar.frame:CreateTexture(nil, "BACKGROUND")
+    track:SetTexture(K.theme.white); track:SetVertexColor(unpack(K.theme.field)); track:SetAllPoints(bar.frame)
+    bar.fill = bar.frame:CreateTexture(nil, "ARTWORK")
+    bar.fill:SetTexture(K.theme.white)
+    bar.fill:SetPoint("TOPLEFT", bar.frame, "TOPLEFT", 0, 0); bar.fill:SetPoint("BOTTOMLEFT", bar.frame, "BOTTOMLEFT", 0, 0)
+    local glintFrame = ns.NewFrame("Frame", nil, bar.frame)
+    glintFrame:SetAllPoints(bar.frame)
+    bar.glint = glintFrame:CreateTexture(nil, "OVERLAY")
+    bar.glint:SetTexture(K.theme.white)
+    bar.glint:SetPoint("TOPLEFT", bar.frame, "TOPLEFT", 0, 0); bar.glint:SetPoint("BOTTOMLEFT", bar.frame, "BOTTOMLEFT", 0, 0)
+    bar.frame:Hide()
+    bar.Set = function(self, share, active, visible)
+        if visible and not self.visible then self.shown, self.phase = 0, 0 end
+        if share and share < self.shown then self.shown = share end
+        self.share, self.active, self.visible = share, active and true or false, visible and true or false
+        if self.visible then self.frame:Show() else self.frame:Hide() end
+    end
+    bar.Tick = function(self, elapsed)
+        if not self.visible then return end
+        local width = self.frame:GetWidth() or 0
+        if width <= 0 then return end
+        if self.active then self.phase = (self.phase + elapsed / 1.4) % 1 end
+        local span, segment
+        if self.share then
+            self.shown = self.shown + (self.share - self.shown) * math.min(1, elapsed * 6)
+            span, segment = math.max(1, width * math.min(1, self.shown)), 48
+            self.fill:SetWidth(span); self.fill:Show()
+            self.fill:SetVertexColor(unpack(self.active and K.theme.accent or K.theme.off))
+            ns.Gradient(self.glint, "HORIZONTAL", 1, 1, 1, 0, 1, 0.95, 0.80, 0.75)
+        else
+            span, segment = width, math.max(24, width * 0.25)
+            self.fill:Hide()
+            local a = K.theme.accent
+            ns.Gradient(self.glint, "HORIZONTAL", a[1], a[2], a[3], 0, a[1], a[2], a[3], self.active and 1 or 0.4)
+        end
+        local head = self.phase * (span + segment)
+        local left, right = math.max(0, head - segment), math.min(span, head)
+        if (self.share and not self.active) or right - left < 1 then self.glint:Hide(); return end
+        self.glint:ClearAllPoints()
+        self.glint:SetPoint("TOPLEFT", self.frame, "TOPLEFT", left, 0)
+        self.glint:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", left, 0)
+        self.glint:SetWidth(right - left); self.glint:Show()
+    end
+    return bar
 end
 function K.NavDivider(parent, after)
     local divider = parent:CreateTexture(nil, "ARTWORK")
@@ -187,10 +270,34 @@ function K.NavDivider(parent, after)
     divider:SetPoint("LEFT", after, "RIGHT", 8, 0)
     return divider
 end
+function K.Font(name, base, size)
+    if not _G[name] then
+        local font = CreateFont(name)
+        local source = _G[base]
+        font:SetFontObject(source)
+        ns.SetFont(font, source:GetFont(), size, select(3, source:GetFont()))
+    end
+    return name
+end
+function K.NavText(b)
+    local font = K.Font("ManaCodeNavFont", "GameFontNormal", 11)
+    b:SetNormalFontObject(font); b:SetHighlightFontObject(font); b:SetDisabledFontObject(font)
+    b.text:SetFontObject(font)
+end
+function K.HoverMenu(menu)
+    local away = 0
+    menu.frame:HookScript("OnEnter", function() if not menu.frame.btnDisabled then menu.cover:Show() end end)
+    menu.cover:HookScript("OnShow", function() away = 0 end)
+    menu.cover:SetScript("OnUpdate", function(_, elapsed)
+        if MouseIsOver(menu.frame) or MouseIsOver(menu.panel) then away = 0; return end
+        away = away + elapsed
+        if away > 0.3 then menu.cover:Hide() end
+    end)
+end
 function K.MakeNav(b)
     b.kind = "nav"
     b:SetHeight(26)
-    K.LargeText(b)
+    K.NavText(b)
     if not rawget(b, "navLine") then
         b.navLine = b:CreateTexture(nil, "ARTWORK")
         b.navLine:SetTexture(K.theme.white)
@@ -418,10 +525,14 @@ function K.ItemChoice(parent, fn)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return b
 end
+function K.ItemsArrived()
+    if ns.Trader and ns.Trader.frame then ns.Trader.Refresh() end
+end
 function K.SetItemChoice(b, id, active, quality)
     b.itemID = id
     b.itemLink = nil
     local _, _, rarity = ns.Compat.ItemInfo(id)
+    if not rarity then ns.Compat.RequestItem(id, K.ItemsArrived) end
     b.quality = quality or rarity
     b.text:SetText(ns.Markets.Name(id))
     if b.quality and type(GetItemQualityColor) == "function" then
@@ -573,15 +684,15 @@ function Inspector.Switch(mode, id)
         if target and ns.MarketWindow then ns.MarketWindow.Open(target) end
     elseif ns.MarketWindow then ns.MarketWindow.Close() end
 end
-function Inspector:Place(top)
-    if self.top == top then return end
-    self.top = top; self:Layout()
+function Inspector:Place(top, bottom)
+    if self.top == top and self.bottom == bottom then return end
+    self.top, self.bottom = top, bottom; self:Layout()
 end
 function Inspector:Layout()
     local panel = self.frame
     panel:ClearAllPoints()
     panel:SetPoint("TOPRIGHT", self.parent, "TOPRIGHT", -6, self.top)
-    panel:SetPoint("BOTTOMRIGHT", self.parent, "BOTTOMRIGHT", -6, 2)
+    panel:SetPoint("BOTTOMRIGHT", self.parent, "BOTTOMRIGHT", -6, self.bottom or 2)
     panel:SetWidth(264)
     local item = self.actions and 210 or 240
     self.item:SetWidth(item); self.item.text:SetWidth(item - 32)
@@ -863,6 +974,7 @@ function K.Menu(parent, entries, choose)
     menu.cover:Hide()
     parent:HookScript("OnHide", function() menu.cover:Hide() end)
     local panel = ns.NewFrame("Frame", nil, menu.cover)
+    menu.panel = panel
     panel:SetPoint("TOPLEFT", menu.frame, "BOTTOMLEFT", 0, -2)
     panel:SetWidth(210); panel:SetHeight(#entries * 28 + 16)
     panel:EnableMouse(true)
@@ -996,17 +1108,11 @@ end
 local MarketRow = {}
 MarketRow.__index = MarketRow
 K.MarketRow = MarketRow
-function K.MarketColumns(width, layout)
-    if layout == "craft" then
-        local cell = math.min(104, math.max(76, math.floor((width - 190) / 4)))
-        local item = width - 164 - cell * 3
-        return {item = {0, item}, price = {item + 6, cell}, subtotal = {item + cell + 12, cell},
-            margin = {item + cell * 2 + 18, cell}, units = {width - 140, 40}}
-    end
-    return {item = {0, width - 374}, price = {width - 374, 104},
-        margin = {width - 264, 118}, units = {width - 140, 40}}
+function K.MarketColumns(width)
+    return {item = {0, width - 304}, price = {width - 304, 104},
+        margin = {width - 194, 118}, units = {width - 70, 40}}
 end
-function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost, toggleHide)
+function MarketRow:New(parent, selectRow, toggleMaterial, toggleHide)
     local row = setmetatable({}, self)
     row.frame = K.ItemChoice(parent, function() selectRow(row.props.id, row.props) end)
     parent.marketRowCount = (rawget(parent, "marketRowCount") or 0) + 1
@@ -1026,7 +1132,6 @@ function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost, toggleHide
     row.frame:SetHeight(30)
     row.frame.text:SetWidth(205)
     row.price = K.Label(row.frame, "", 240, -3, 120)
-    row.subtotal = K.Label(row.frame, "", 365, -3, 120)
     row.margin = K.Label(row.frame, "", 365, -3, 120)
     row.marginRate = K.Label(row.frame, "", 0, 0, 118)
     row.marginRate:SetTextColor(unpack(K.theme.secondary))
@@ -1038,13 +1143,13 @@ function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost, toggleHide
     row.frame.text:ClearAllPoints()
     row.frame.text:SetPoint("TOPLEFT", row.frame, "TOPLEFT", 28, -2)
     row.frame.text:SetHeight(12)
-    row.refresh = K.Button(row.frame, ns.T("tradeUpdate"), 84, function()
+    row.refresh = K.IconButton(row.frame, "refresh", function()
         if row.props.action then row.props.action(row.props.id) else ns.Markets.Scan(row.props.id) end
-    end, "quiet")
+    end, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
     row.refresh:SetPoint("RIGHT", row.frame, "RIGHT", -2, 0)
-    K.Tooltip(row.refresh, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
     if toggleHide then
         row.hide = K.Button(row.frame, ns.T("hiddenHide"), 66, function() toggleHide(row.props.id, row.props) end, "quiet")
+        row.hide:SetHeight(20)
         row.hide:SetPoint("RIGHT", row.refresh, "LEFT", -4, 0)
     end
     if toggleMaterial then
@@ -1052,31 +1157,14 @@ function MarketRow:New(parent, selectRow, toggleMaterial, toggleCost, toggleHide
         row.expand.text:ClearAllPoints(); row.expand.text:SetPoint("CENTER", row.expand, "CENTER", 0, 0)
         K.Tooltip(row.expand, ns.T("craftMaterialSource"), ns.T("craftTreeTip"))
     end
-    if toggleCost then
-        row.include = K.Check(row.frame, function(checked) toggleCost(row.props.id, checked) end)
-        row.include:SetPoint("LEFT", row.frame, "LEFT", 0, 0)
-        K.Tooltip(row.include, ns.T("craftIncludeCost"), ns.T("craftIncludeTip"))
-    end
     row.buttons = {row.refresh}
     if row.hide then row.buttons[2] = row.hide end
-    row.frame:HookScript("OnEnter", function() row.hovered = true; row:Reveal() end)
-    row.frame:HookScript("OnLeave", function()
-        row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; row:Reveal()
-    end)
-    for _, button in ipairs(row.buttons) do
-        button:HookScript("OnLeave", function()
-            row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; row:Reveal()
-        end)
-    end
     return row
 end
 function MarketRow:Reveal()
-    local p = self.props
-    if not p then return end
-    local show = not p.reveal or self.hovered or p.active
-    if self.refreshWanted and show then self.refresh:Show() else self.refresh:Hide() end
+    if self.refreshWanted then self.refresh:Show() else self.refresh:Hide() end
     if self.hide then
-        if self.hideWanted and show then self.hide:Show() else self.hide:Hide() end
+        if self.hideWanted then self.hide:Show() else self.hide:Hide() end
     end
 end
 function MarketRow:SetProps(props)
@@ -1087,10 +1175,12 @@ function MarketRow:Render()
     local p = self.props
     self.frame.extraTip = p.extraTip
     K.SetItemChoice(self.frame, p.id, p.active, p.quality)
-    local columns = p.width and K.MarketColumns(p.width - (p.reserve or 0), p.layout)
+    local columns = p.width and K.MarketColumns(p.width - (p.reserve or 0))
     if self.hide then
         if p.hideable then
-            self.hide:SetText(p.hideLabel or ns.T("hiddenHide"))
+            if p.hideLabel then
+                K.SetGlyph(self.hide, nil); self.hide:SetText(p.hideLabel); self.hide:SetWidth(66)
+            else K.SetGlyph(self.hide, "hide") end
             K.Tooltip(self.hide, p.hideLabel or ns.T("hiddenHide"), ns.T(p.hidden and "hiddenRestoreTip" or "hiddenHideTip"))
             self.hideWanted = true
         else self.hideWanted = false end
@@ -1106,12 +1196,6 @@ function MarketRow:Render()
             self[key]:SetWidth(columns[key][2])
             self[key]:SetJustifyH("RIGHT")
         end
-        if columns.subtotal then
-            self.subtotal:ClearAllPoints()
-            self.subtotal:SetPoint("TOPLEFT", self.frame, "TOPLEFT", columns.subtotal[1], -8)
-            self.subtotal:SetWidth(columns.subtotal[2]); self.subtotal:SetJustifyH("RIGHT")
-            self.subtotal:SetText(K.Money(p.subtotal)); self.subtotal:Show()
-        else self.subtotal:Hide() end
     end
     if self.expand then
         local offset = p.depth ~= nil and (34 + p.depth * 12) or 0
@@ -1122,15 +1206,10 @@ function MarketRow:Render()
         self.detail:SetWidth(math.max(24, columns.item[2] - offset - 34))
         self.expand:ClearAllPoints(); self.expand:SetPoint("LEFT", self.frame, "LEFT", math.max(0, offset - 16), 0)
         self.expand:SetText(p.crafted and "-" or "+")
-        if p.excluded then self.expand:Disable() else self.expand:Enable() end
         if p.expandable then self.expand:Show() else self.expand:Hide() end
     end
-    if self.include then
-        self.include:SetChecked(not p.excluded)
-        if p.depth ~= nil and p.include ~= false then self.include:Show() else self.include:Hide() end
-    end
     self.price:SetText(K.Money(p.quote and p.quote.price))
-    self.margin:SetText(K.Money(p.margin))
+    self.margin:SetText(p.marginText or K.Money(p.margin))
     if p.percent then
         self.margin:ClearAllPoints()
         self.margin:SetPoint("TOPRIGHT", self.marginRate, "TOPRIGHT", 0, 13)
@@ -1145,7 +1224,6 @@ function MarketRow:Render()
     self.detail:SetTextColor(unpack(K.theme.secondary))
     self.refreshWanted = not (p.noRefresh or (p.quote and p.quote.vendor))
     self:Reveal()
-    self.refresh:SetText(p.actionLabel or ns.T("tradeUpdate"))
     if p.actionDisabled then self.refresh:Disable() else self.refresh:Enable() end
     if p.actionTip then K.Tooltip(self.refresh, p.actionLabel, p.actionTip) end
 end
@@ -1824,7 +1902,7 @@ function K.Modal(parent, name)
     return dim
 end
 function K.DisenchantColumns(width, target, refresh)
-    local action, level, price, margin, rate = refresh and 128 or 62, 40, 86, 92, 58
+    local action, level, price, margin, rate = refresh and 54 or 30, 40, 86, 92, 58
     local via, viaRate = target and 88 or 0, target and 70 or 0
     local rest = width - action - level - price - margin - rate - via - viaRate
     if target and rest < 200 then rest, viaRate = rest + viaRate, 0 end
@@ -1875,7 +1953,6 @@ function GroupRow:New(parent, toggle)
     row.buttons[3]:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
     row.buttons[2]:SetPoint("RIGHT", row.buttons[3], "LEFT", -3, 0)
     row.buttons[1]:SetPoint("RIGHT", row.buttons[2], "LEFT", -3, 0)
-    K.HookReveal(row)
     return row
 end
 function GroupRow:SetProps(props)
@@ -1940,34 +2017,20 @@ function DRow:New(parent, select, buy, refresh)
         cell:SetHeight(12); cell:SetJustifyH("RIGHT")
         row.cells[key] = cell
     end
-    row.buy = K.Button(row.frame, ns.T("deBuyRow"), 58, function() buy(row.props.id) end, "quiet")
-    row.buy:SetHeight(20)
+    row.tag = K.Label(row.frame, "", 0, -6, K.ITEM_TAG)
+    row.tag:SetHeight(12); row.tag:SetJustifyH("RIGHT"); row.tag:Hide()
+    row.buy = K.IconButton(row.frame, "buy", function() buy(row.props.id) end, ns.T("deBuyRow"), ns.T("deBuyRowTip"))
     row.buy:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
-    K.Tooltip(row.buy, ns.T("deBuyRow"), ns.T("deBuyRowTip"))
     if refresh then
-        row.refresh = K.Button(row.frame, ns.T("tradeUpdate"), 62, function() refresh(row.props.id) end, "quiet")
-        row.refresh:SetHeight(20)
+        row.refresh = K.IconButton(row.frame, "refresh", function() refresh(row.props.id) end,
+            ns.T("tradeUpdate"), ns.T("deRefreshRowTip"))
         row.refresh:SetPoint("RIGHT", row.buy, "LEFT", -3, 0)
-        K.Tooltip(row.refresh, ns.T("tradeUpdate"), ns.T("deRefreshRowTip"))
-        row.refresh:HookScript("OnLeave", function()
-            row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; row:Reveal()
-        end)
     end
-    row.frame:HookScript("OnEnter", function() row.hovered = true; row:Reveal() end)
-    row.frame:HookScript("OnLeave", function()
-        row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; row:Reveal()
-    end)
-    row.buy:HookScript("OnLeave", function()
-        row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; row:Reveal()
-    end)
     return row
 end
 function DRow:Reveal()
-    local show = self.props and (self.hovered or self.props.active)
-    if show and self.props.action ~= false then self.buy:Show() else self.buy:Hide() end
-    if self.refresh then
-        if show then self.refresh:Show() else self.refresh:Hide() end
-    end
+    if self.props.action ~= false then self.buy:Show() else self.buy:Hide() end
+    if self.refresh then self.refresh:Show() end
 end
 function DRow:SetProps(props)
     self.props = props; self:Render()
@@ -1978,7 +2041,7 @@ function DRow:Render()
     self.frame:SetWidth(p.width)
     K.SetItemChoice(self.frame, p.id, p.active, p.quality)
     self.frame.extraTip = p.tip
-    self.frame.text:SetWidth(math.max(40, columns.item[2] - 38))
+    K.ItemTag(self.frame, self.tag, columns.item, p.tag)
     for key, cell in pairs(self.cells) do
         local column = columns[key]
         cell:ClearAllPoints()
@@ -2003,7 +2066,7 @@ function DRow:Render()
     self:Reveal()
 end
 function K.CraftColumns(width)
-    local action = width >= 760 and 198 or 134
+    local action = 80
     local price, margin, units = 86, 92, 48
     local state = width >= 820 and 72 or 0
     local best = width >= 960 and 180 or 0
@@ -2017,13 +2080,16 @@ function K.CraftColumns(width)
     columns.action = {x, action}
     return columns
 end
+function K.ActionWidth(action, default)
+    return action.icon and 22 or action.width or default
+end
 function K.PlaceActions(row)
     local actions = row.props and row.props.actions or {}
     local right
     for i = #actions, 1, -1 do
         local button = row.buttons[i]
         if button then
-            button:SetWidth(actions[i].width or 60)
+            button:SetWidth(K.ActionWidth(actions[i], 60))
             button:ClearAllPoints()
             if right then button:SetPoint("RIGHT", right, "LEFT", -3, 0)
             else button:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0) end
@@ -2033,26 +2099,14 @@ function K.PlaceActions(row)
 end
 function K.RevealActions(row)
     local p = row.props
-    local show = p and (row.hovered or p.active)
     for i, button in ipairs(row.buttons) do
         local action = p and p.actions and p.actions[i]
-        if action and show then
-            button:SetText(action.label)
+        if action then
+            if not K.SetGlyph(button, action.icon) then button:SetText(action.label) end
             if action.disabled then button:Disable() else button:Enable() end
             if action.tip then K.Tooltip(button, action.label, action.tip) end
             button:Show()
         else button:Hide() end
-    end
-end
-function K.HookReveal(row)
-    row.frame:HookScript("OnEnter", function() row.hovered = true; K.RevealActions(row) end)
-    row.frame:HookScript("OnLeave", function()
-        row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; K.RevealActions(row)
-    end)
-    for _, button in ipairs(row.buttons) do
-        button:HookScript("OnLeave", function()
-            row.hovered = MouseIsOver and MouseIsOver(row.frame) or false; K.RevealActions(row)
-        end)
     end
 end
 local CraftRow = {}
@@ -2098,7 +2152,6 @@ function CraftRow:New(parent, select, expand)
     row.buttons[3]:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
     row.buttons[2]:SetPoint("RIGHT", row.buttons[3], "LEFT", -3, 0)
     row.buttons[1]:SetPoint("RIGHT", row.buttons[2], "LEFT", -3, 0)
-    K.HookReveal(row)
     return row
 end
 function CraftRow:SetProps(props)
@@ -2188,7 +2241,13 @@ function Batch:New(parent)
     panel.info = K.Button(c, ns.T("tradeInfo"), 22, function() end, "quiet")
     panel.info:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, 0)
     K.Tooltip(panel.info, ns.T("batchTitle"), ns.T("batchTip"))
-    panel.status = K.Label(c, "", 0, -18, 220, "secondary"); panel.status:SetHeight(12)
+    panel.scan = K.Button(c, ns.T("batchScan"), 60, function()
+        if panel.props and panel.props.scan then panel.props.scan.run() end
+    end, "quiet")
+    panel.scan:SetHeight(20); panel.scan:SetPoint("RIGHT", panel.info, "LEFT", -4, 0)
+    K.Tooltip(panel.scan, ns.T("scanSelection"), ns.T("scanRecipeSelectionTip"))
+    panel.scan:Hide()
+    panel.status = K.Label(c, "", 0, -18, 220, "secondary"); panel.status:SetHeight(12); panel.status:SetJustifyV("TOP")
     panel.sourceChip = K.Chip(c, ns.T("batchMakeChip"), function(checked) panel:Emit("craftAll", checked) end)
     K.Tooltip(panel.sourceChip, ns.T("craftMaterialSource"), ns.T("craftTreeTip"))
     panel.ownedChip = K.Chip(c, ns.T("batchOwnedChip"), function(checked) panel:Emit("owned", checked) end)
@@ -2214,7 +2273,7 @@ function Batch:New(parent)
     panel.reagentsTitle = K.Label(c, ns.T("batchReagents"), 0, 0, 200, "heading"); panel.reagentsTitle:SetHeight(14)
     for i = 1, 16 do
         local row = {buttons = {}}
-        row.frame = K.ItemChoice(c, function() panel.selected = row.node and row.node.id; panel:Render() end)
+        row.frame = K.ItemChoice(c, function() panel:Select(row.node and row.node.id) end)
         row.frame:SetHeight(30)
         row.frame.selected:SetDrawLayer("BORDER")
         row.frame.icon:SetWidth(22); row.frame.icon:SetHeight(22)
@@ -2230,19 +2289,18 @@ function Batch:New(parent)
         row.expand:SetHeight(18)
         row.expand.text:ClearAllPoints(); row.expand.text:SetPoint("CENTER", row.expand, "CENTER", 0, 0)
         K.Tooltip(row.expand, ns.T("craftMaterialSource"), ns.T("craftTreeTip"))
-        row.buttons[1] = K.Button(row.frame, ns.T("tradeBuy"), 58, function()
+        row.buttons[1] = K.IconButton(row.frame, "buy", function()
             if row.node and panel.props.buy then panel.props.buy(row.node.id, row.node.need) end
-        end, "quiet")
-        row.buttons[1]:SetHeight(20)
-        row.buttons[1]:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
+        end, ns.T("tradeBuy"), ns.T("batchBuyRowTip"))
+        row.buttons[1]:SetPoint("RIGHT", row.frame, "RIGHT", -88, 0)
         row.buttons[1]:Hide()
-        K.HookReveal(row)
         panel:Scrollable(row.frame)
         row.frame:Hide()
         panel.rows[i] = row
     end
+    panel:NewTools(c)
     panel.totalKeys, panel.totalValues = {}, {}
-    for i = 1, 4 do
+    for i = 1, 5 do
         local key = K.Label(c, "", 0, 0, 120, "secondary"); key:SetHeight(12)
         local value = K.Label(c, "", 0, 0, 100); value:SetHeight(12); value:SetJustifyH("RIGHT")
         panel.totalKeys[i], panel.totalValues[i] = key, value
@@ -2254,13 +2312,79 @@ function Batch:New(parent)
     panel.frame:Hide()
     return panel
 end
+function Batch:NewTools(c)
+    local tools = ns.NewFrame("Frame", nil, c)
+    tools:SetHeight(90); tools:Hide()
+    self.tools = tools
+    tools.label = K.Label(tools, ns.T("alchemyPriceLabel"), 0, 0, 220, "secondary"); tools.label:SetHeight(12)
+    tools.edit = K.Edit(tools, 52)
+    tools.edit:SetPoint("TOPLEFT", tools, "TOPLEFT", 0, -14)
+    K.Tooltip(tools.edit, ns.T("alchemyPriceLabel"), ns.T("alchemyPriceHint"))
+    tools.edit:SetScript("OnEnterPressed", function() self:SavePrice() end)
+    tools.save = K.Button(tools, ns.T("alchemySavePrice"), 66, function() self:SavePrice() end)
+    tools.save:SetHeight(22); tools.save:SetPoint("LEFT", tools.edit, "RIGHT", 4, 0)
+    tools.reset = K.Button(tools, ns.T("batchPriceReset"), 66, function()
+        if self.selected then ns.Alchemy.SetPrice(self.selected, nil); self.editID = nil; self:Emit("price") end
+    end, "quiet")
+    tools.reset:SetHeight(22); tools.reset:SetPoint("LEFT", tools.save, "RIGHT", 4, 0)
+    K.Tooltip(tools.reset, ns.T("batchPriceReset"), ns.T("batchPriceResetTip"))
+    tools.own = K.Chip(tools, ns.T("batchOwnChip"), function(checked)
+        if self.selected then self:Emit("ignore", checked, self.selected) end
+    end)
+    tools.own:SetHeight(22)
+    K.Tooltip(tools.own, ns.T("batchOwnChip"), ns.T("craftIncludeTip"))
+    tools.open = K.Button(tools, ns.T("reagentOpen"), 110, function()
+        if self.selected and self.props.reagent then self.props.reagent.open(self.selected) end
+    end, "quiet")
+    tools.open:SetHeight(22); tools.open:SetPoint("TOPLEFT", tools, "TOPLEFT", 0, -66)
+    self:Scrollable(tools)
+end
+function Batch:SavePrice()
+    local edit, id = self.tools.edit, self.selected
+    local price = tonumber((edit:GetText():gsub(",", ".")))
+    if not id or not price or not ns.Alchemy.SetPrice(id, price * 10000) then
+        ns.say(ns.T("alchemyInvalidPrice")); return
+    end
+    edit:ClearFocus()
+    self.editID = nil
+    self:Emit("price")
+end
+function Batch:Select(id)
+    self.selected = id
+    if self.props and self.props.select then self.props.select(id) else self:Render() end
+end
+function Batch:PlaceTools(node, y, width)
+    local tools = self.tools
+    tools:SetWidth(width)
+    self:Place(tools, 22, y)
+    local vendor = ns.vendorPrices[node.id]
+    local quote = ns.Alchemy.Quote(node.id)
+    if vendor then
+        tools.label:SetText(ns.T("vendorResaleCost", K.Money(vendor)))
+        tools.edit:Hide(); tools.save:Hide(); tools.reset:Hide()
+    else
+        tools.label:SetText(ns.T("alchemyPriceLabel"))
+        tools.edit:Show(); tools.save:Show()
+        if quote and quote.manual then tools.reset:Show() else tools.reset:Hide() end
+        if self.editID ~= node.id and not tools.edit:HasFocus() then
+            tools.edit:SetText(quote and quote.manual and string.format("%.4f", quote.price / 10000) or "")
+            self.editID = node.id
+        end
+    end
+    tools.own:ClearAllPoints()
+    tools.own:SetPoint("TOPLEFT", tools, "TOPLEFT", 0, vendor and -16 or -40)
+    tools.own:SetChecked(node.excluded and true or false)
+    if ns.Crafting.IsInput(node.id) and not vendor then tools.open:Show() else tools.open:Hide() end
+    return vendor and 42 or 92
+end
 function Batch:Emit(key, value, id)
     if self.props and self.props.change then self.props.change(key, value, id) end
 end
 function Batch:SetProps(props)
     if not self.props or not props.recipe or not self.props.recipe or self.props.recipe.raw ~= props.recipe.raw then
-        self.queue, self.selected = 1, nil
+        self.queue, self.selected, self.editID = 1, nil, nil
     end
+    if props.selected ~= nil then self.selected = props.selected or nil end
     self.props = props; self:Render()
 end
 function Batch:Missing()
@@ -2294,7 +2418,7 @@ function Batch:Render()
     self.frame:Show()
     local o = p.options
     local plan = ns.CraftPlan.Build(p.recipe, {make = o.make, ignore = o.ignore, craftAll = o.craftAll, owned = o.owned,
-        fee = o.fee, quantity = o.quantity})
+        fee = ns.Fee(), quantity = o.quantity})
     self.plan = plan
     local width = math.max(160, (self.frame:GetWidth() or 240) - 22)
     self.child:SetWidth(width)
@@ -2302,12 +2426,21 @@ function Batch:Render()
     local status = ns.T("batchOutput", p.recipe.count)
     if p.known == true then status = status .. " | " .. ns.T("craftRecipeKnown")
     elseif p.known == false then status = status .. " | " .. ns.T("craftRecipeUnknown") end
+    if plan.extra > 0 then status = status .. ns.T("craftExtra", plan.extra) end
+    status = status .. (p.note or "")
     self.status:SetText(status)
-    local y = 34
+    local wide = (self.status.GetStringWidth and self.status:GetStringWidth() or 0) > width
+    self.status:SetHeight(wide and 26 or 12)
+    if p.scan then
+        self.scan.tipFn = p.scan.tip
+        self.scan:Show()
+    else self.scan:Hide() end
+    local y = wide and 48 or 34
     self.sourceChip:SetChecked(o.craftAll and true or false)
     self.ownedChip:SetChecked(o.owned and true or false)
     self:Place(self.sourceChip, 0, y)
-    self:Place(self.ownedChip, (self.sourceChip:GetWidth() or 120) + 6, y)
+    if p.ownedChip == false then self.ownedChip:Hide()
+    else self:Place(self.ownedChip, (self.sourceChip:GetWidth() or 120) + 6, y) end
     y = y + 28
     self:Place(self.quantityLabel, 0, y + 5)
     self:Place(self.quantity, 84, y)
@@ -2320,6 +2453,8 @@ function Batch:Render()
     y = y + 28
     self:Place(self.reagentsTitle, 0, y)
     y = y + 18
+    local toolsAt
+    self.tools:Hide()
     for i, row in ipairs(self.rows) do
         local node = plan.rows[i]
         row.node = node
@@ -2327,12 +2462,14 @@ function Batch:Render()
             self:Place(row.frame, 0, y)
             row.frame:SetWidth(width)
             local offset = 22 + node.depth * 12
+            local buyable = not node.excluded and not node.crafted and node.need > 0 and not ns.vendorPrices[node.id]
+            local textWidth = math.max(40, width - offset - 112 - (buyable and 26 or 0))
             K.SetItemChoice(row.frame, node.id, node.id == self.selected)
             row.frame.icon:ClearAllPoints(); row.frame.icon:SetPoint("LEFT", row.frame, "LEFT", offset, 0)
             row.frame.text:ClearAllPoints(); row.frame.text:SetPoint("TOPLEFT", row.frame, "TOPLEFT", offset + 26, -3)
-            row.frame.text:SetWidth(math.max(40, width - offset - 112))
+            row.frame.text:SetWidth(textWidth)
             row.detail:ClearAllPoints(); row.detail:SetPoint("TOPLEFT", row.frame, "TOPLEFT", offset + 26, -16)
-            row.detail:SetWidth(math.max(40, width - offset - 112))
+            row.detail:SetWidth(textWidth)
             row.expand:ClearAllPoints(); row.expand:SetPoint("LEFT", row.frame, "LEFT", offset - 20, 0)
             row.expand:SetText(node.crafted and "-" or "+")
             if node.expandable and not node.excluded then row.expand:Show() else row.expand:Hide() end
@@ -2357,15 +2494,19 @@ function Batch:Render()
             row.price:SetTextColor(unpack(K.theme[(not node.crafted and not node.excluded and not price) and "negative" or "text"]))
             row.sum:SetText(K.Money(node.crafted and node.value or node.cash))
             row.props = {active = node.id == self.selected,
-                actions = (not node.excluded and not node.crafted and node.need > 0 and not ns.vendorPrices[node.id])
-                    and {{label = ns.T("tradeBuy"), tip = ns.T("batchBuyRowTip")}} or nil}
+                actions = buyable and {{label = ns.T("tradeBuy"), icon = "buy", tip = ns.T("batchBuyRowTip")}} or nil}
             K.RevealActions(row)
             y = y + 30
+            if p.reagent and not toolsAt and node.id == self.selected then
+                toolsAt = node
+                y = y + self:PlaceTools(node, y, width - 22)
+            end
         else row.frame:Hide() end
     end
     y = y + 6
-    local fee = math.floor((o.fee or 0.05) * 100 + 0.5)
+    local fee = math.floor(ns.Fee() * 100 + 0.5)
     local totals = {{ns.T("batchCost"), K.Money(plan.cost), "text"},
+        {ns.T("batchUnitCost"), K.Money(plan.unitCost and math.floor(plan.unitCost + 0.5)), "text"},
         {ns.T("batchCash"), K.Money(plan.cash), "text"},
         {ns.T("batchRevenue", fee), K.Money(plan.revenue), "text"},
         {ns.T("batchMargin"), K.Money(plan.margin), plan.margin and (plan.margin > 0 and "positive" or "negative") or "text"}}
@@ -2399,12 +2540,15 @@ function Batch:Render()
         self.buy:SetText(#missing == 1 and ns.T("batchBuyMissing")
             or ns.T("batchBuyNext", index, #missing))
         self.buy:Enable()
+        local current = missing[index]
+        local note = ns.T("batchQueueNow", ns.Markets.Name(current.id) .. " x" .. current.need)
         local rest = {}
-        for i = 1, #missing do
+        for i = 1, math.min(#missing - 1, 3) do
             local following = missing[(index + i - 1) % #missing + 1]
-            if i > 1 and #rest < 3 then rest[#rest + 1] = ns.Markets.Name(following.id) .. " x" .. following.need end
+            rest[#rest + 1] = ns.Markets.Name(following.id) .. " x" .. following.need
         end
-        self.queueNote:SetText(#rest > 0 and ns.T("batchQueue", table.concat(rest, ", ")) or "")
+        if #rest > 0 then note = note .. "\n" .. ns.T("batchQueue", table.concat(rest, ", ")) end
+        self.queueNote:SetText(note)
     end
     y = y + 30
     self.queueNote:SetWidth(width)
@@ -2476,7 +2620,6 @@ function LedgerRow:New(parent, select)
     end
     row.buttons[1]:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
     row.buttons[2]:SetPoint("RIGHT", row.buttons[1], "LEFT", -3, 0)
-    K.HookReveal(row)
     return row
 end
 function LedgerRow:Cell(key)
@@ -2544,7 +2687,7 @@ function LedgerRow:Render()
     end
     for i, button in ipairs(self.buttons) do
         local action = p.actions and p.actions[i]
-        if action then button:SetWidth(action.width or 64) end
+        if action then button:SetWidth(K.ActionWidth(action, 64)) end
     end
     K.RevealActions(self)
 end
@@ -2562,7 +2705,7 @@ function K.DisabledTip(b, title, reason)
     b:HookScript("OnLeave", function() GameTooltip:Hide() end)
 end
 function K.RecycleColumns(width)
-    local action, bags, assemble, split, asIs = 70, 66, 96, 90, 90
+    local action, bags, assemble, split, asIs = 30, 66, 96, 90, 90
     local item = width - action - bags - assemble - split - asIs
     if item < 230 then item, bags = item + bags, 0 end
     local columns, x = {item = {0, item}}, item
@@ -2602,7 +2745,6 @@ function RecycleRow:New(parent, select)
     row.buttons[1]:SetHeight(20)
     row.buttons[1]:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
     row.buttons[1]:Hide()
-    K.HookReveal(row)
     return row
 end
 function RecycleRow:SetProps(props)
@@ -2699,19 +2841,33 @@ function BagRow:Render()
         end
     end
 end
-function K.ValueRow(parent, text, y)
-    local label = K.Label(parent, text, 12, y, 118, "secondary")
+function K.ValueRow(parent, text, y, labelWidth, valueWidth)
+    local label = K.Label(parent, text, 12, y, labelWidth or 118, "secondary")
     label:SetHeight(12)
-    local value = K.Label(parent, "", 0, y, 124)
+    local value = K.Label(parent, "", 0, y, valueWidth or 124)
     value:SetHeight(12); value:SetJustifyH("RIGHT")
     value:ClearAllPoints(); value:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -12, y)
     return label, value
+end
+function K.PanelScrollBar(scroll, fits)
+    local name = scroll:GetName()
+    local bar = name and _G[name .. "ScrollBar"]
+    if not bar then return end
+    local up, down = _G[name .. "ScrollBarScrollUpButton"], _G[name .. "ScrollBarScrollDownButton"]
+    scroll:UpdateScrollChildRect()
+    if fits then scroll:SetVerticalScroll(0) end
+    for _, part in ipairs({bar, up, down}) do
+        if fits then part:Hide() else part:Show() end
+    end
 end
 function K.BargainColumns(width, mode)
     local spec, drop
     if mode == "bid" then
         spec = {{"count", 40}, {"price", 90}, {"market", 90}, {"gain", 100}, {"left", 82}, {"buyout", 66}}
         drop = {"buyout", "left", "market"}
+    elseif mode == "vendor" then
+        spec = {{"count", 40}, {"price", 90}, {"vendor", 90}, {"gain", 100}, {"deal", 82}, {"age", 70}}
+        drop = {"age", "deal", "count"}
     else
         spec = {{"count", 40}, {"price", 90}, {"market", 90}, {"discount", 62}, {"revenue", 100}, {"age", 70}}
         drop = {"age", "market", "count"}
@@ -2734,14 +2890,25 @@ end
 local BargainRow = setmetatable({}, {__index = K.LedgerRow})
 BargainRow.__index = BargainRow
 K.BargainRow = BargainRow
+K.ITEM_TAG = 86
+function K.ItemTag(frame, label, item, text)
+    local room = item[2] - 38
+    if label and text then
+        label:ClearAllPoints(); label:SetPoint("LEFT", frame, "LEFT", item[1] + item[2] - K.ITEM_TAG, 0)
+        label:SetWidth(K.ITEM_TAG - 6); label:SetText(text)
+        label:SetTextColor(unpack(K.theme.positive)); label:Show()
+        room = room - K.ITEM_TAG
+    elseif label then label:Hide() end
+    frame.text:SetWidth(math.max(40, room))
+end
 function BargainRow:Render()
     local p, frame = self.props, self.frame
     local columns = K.BargainColumns(p.width, p.mode)
     frame:SetWidth(p.width)
     K.SetItemChoice(frame, p.id, p.active, p.quality)
     frame.extraTip = p.tip
-    frame.text:SetWidth(math.max(40, columns.item[2] - 38))
     for key, cell in pairs(self.cells) do if not columns[key] or not p.cells[key] then cell:Hide() end end
+    K.ItemTag(frame, p.tag and self:Cell("tag") or self.cells.tag, columns.item, p.tag)
     for key, value in pairs(p.cells) do
         local column = columns[key]
         if column then
@@ -2755,7 +2922,7 @@ function BargainRow:Render()
     end
     for i, button in ipairs(self.buttons) do
         local action = p.actions and p.actions[i]
-        if action then button:SetWidth(action.width or 74) end
+        if action then button:SetWidth(K.ActionWidth(action, 74)) end
     end
     K.RevealActions(self)
 end

@@ -61,27 +61,18 @@ function C.OrderIDs(ids)
     for i = 2, #ids do if not C.Favorite(ids[i]) then result[#result + 1] = ids[i] end end
     return result
 end
-function C.Items(mode, eventKey)
+function C.Items(mode)
     local result = {}
-    if mode == "seasonal" then
-        for _, event in ipairs(ns.seasonalEvents or {}) do
-            if event.key == eventKey then
-                for _, item in ipairs(event.items) do result[#result + 1] = {raw = item.id, noteKey = item.noteKey,
-                    count = item.count, event = event, vendor = item.vendor} end
-            end
-        end
-    else
-        local ids = mode == "favorites" and saved().favorites or saved().tracked
-        for id in pairs(ids) do
-            if mode ~= "favorites" or (C.CanFavorite(id) and not ns.Hidden.Is(id)) then result[#result + 1] = {raw = id} end
-        end
-        table.sort(result, function(a, b) return ns.Markets.Name(a.raw) < ns.Markets.Name(b.raw) end)
+    local ids = mode == "favorites" and saved().favorites or saved().tracked
+    for id in pairs(ids) do
+        if mode ~= "favorites" or (C.CanFavorite(id) and not ns.Hidden.Is(id)) then result[#result + 1] = {raw = id} end
     end
+    table.sort(result, function(a, b) return ns.Markets.Name(a.raw) < ns.Markets.Name(b.raw) end)
     return result
 end
-function C.Scan(mode, eventKey, force)
+function C.Scan(mode, force)
     local ids = {}
-    for _, item in ipairs(C.Items(mode, eventKey)) do ids[#ids + 1] = item.raw end
+    for _, item in ipairs(C.Items(mode)) do ids[#ids + 1] = item.raw end
     return ns.Batch.Complete(ids, force or false, true)
 end
 function C.OpenRecipe(id)

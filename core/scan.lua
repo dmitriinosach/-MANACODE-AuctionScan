@@ -3,6 +3,7 @@ local Scan = {}
 ns.Scan = Scan
 local CHUNK = 400
 local PAGE = 50
+local PAGE_LOG_EVERY = 20
 local GAP = 0.3
 local MAX_GAP = 8
 local BACKOFF = 5
@@ -175,8 +176,10 @@ local function readPage(now)
         if not readOne(i) then S.miss = S.miss + 1 end
     end
     if S.page == 0 then S.expect = (S.scan.deExpectedBase or 0) + total end
-    ns.Store.Log("page read=" .. (S.page + 1) .. " lots=" .. batch .. " total=" .. total
-        .. " response=" .. string.format("%.2f", now - S.sentAt))
+    if S.page % PAGE_LOG_EVERY == 0 then
+        ns.Store.Log("page read=" .. (S.page + 1) .. " lots=" .. batch .. " total=" .. total
+            .. " response=" .. string.format("%.2f", now - S.sentAt))
+    end
     S.sig, S.stale = sig, 0
     S.pages = math.ceil(total / PAGE)
     S.page, S.tries = S.page + 1, 0
@@ -322,7 +325,6 @@ end
 function Scan.OnListUpdate()
     if S.phase ~= "wait" and S.phase ~= "settle" then return end
     local now = GetTime()
-    ns.Store.Log("event page=" .. (S.page + 1) .. " response=" .. string.format("%.2f", now - S.sentAt))
     S.phase, S.readAt = "settle", now + SETTLE
 end
 function Scan.OnUpdate(elapsed)
@@ -427,7 +429,9 @@ function Scan.Save()
         scan = S.scan, page = S.page, pages = S.pages, expect = S.expect, miss = S.miss,
         at = time() - idle, ran = math.floor(now - S.startedAt),
     }
-    ns.Store.Log("saved page=" .. (S.page + 1) .. "/" .. S.pages .. " lots=" .. #S.scan.lots)
+    if S.phase == "paused" then
+        ns.Store.Log("saved page=" .. (S.page + 1) .. "/" .. S.pages .. " lots=" .. #S.scan.lots)
+    end
 end
 function Scan.Restore()
     local db = ns.Store.DB()

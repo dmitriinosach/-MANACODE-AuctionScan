@@ -1,9 +1,9 @@
 local _, ns = ...
-local UI = {props = {key = "planar", fee = 0.05}, rows = {}, groups = {}, collapsed = {}}
+local UI = {props = {key = "planar"}, rows = {}, groups = {}, collapsed = {}}
 ns.RecycleUI = UI
 local TOP, BOTTOM, ROW = 26, 34, 24
 function UI:SetProps(props)
-    for key, value in pairs(props) do self.props[key] = value end
+    for key, value in pairs(props) do if key ~= "fee" then self.props[key] = value end end
     self:Render()
 end
 function UI:Controls()
@@ -35,8 +35,11 @@ function UI:FitPanel()
     self.scrollBody:ClearAllPoints()
     self.scrollBody:SetPoint("TOPLEFT", self.inspector.body, "TOPLEFT", 0, -40)
     self.scrollBody:SetPoint("BOTTOMRIGHT", self.inspector.body, "BOTTOMRIGHT", fits and -6 or -26, 4)
+    ns.TradeKit.PanelScrollBar(self.scrollBody, fits)
     self.panelChild:SetWidth(width); self.panelChild:SetHeight(self.panelHeight)
     local inner = width - 24
+    for _, label in ipairs(self.priceLabels) do label:SetWidth(inner - 118) end
+    for _, label in ipairs(self.outcomeLabels) do label:SetWidth(inner - 108) end
     self.formula:SetWidth(inner - 22)
     self.advice:SetWidth(inner); self.packNote:SetWidth(inner); self.have:SetWidth(inner)
     self.packsHead:SetWidth(inner)
@@ -101,7 +104,7 @@ function UI:Render()
             if header then
                 local priced = 0
                 for _, pair in ipairs(group.pairs) do
-                    local e = R.Evaluate(pair, p.fee)
+                    local e = R.Evaluate(pair, ns.Fee())
                     if e.asIs or e.split then priced = priced + 1 end
                 end
                 header.frame:ClearAllPoints(); header.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, y)
@@ -113,11 +116,11 @@ function UI:Render()
             usedRows = usedRows + 1
             local row, pair = self.rows[usedRows], line.pair
             if row then
-                local estimate = R.Evaluate(pair, p.fee)
+                local estimate = R.Evaluate(pair, ns.Fee())
                 row.frame:ClearAllPoints(); row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, y)
                 row:SetProps({key = pair.key, id = pair.big, width = width, estimate = estimate, oneWay = not pair.both,
                     active = pair.key == p.key, tip = self:RowTip(pair, estimate),
-                    actions = {{label = ns.T("tradeUpdate"), tip = ns.T("recycleScanPairTip"),
+                    actions = {{label = ns.T("tradeUpdate"), icon = "refresh", tip = ns.T("recycleScanPairTip"),
                         fn = function(key) R.Complete(R.Pair(key), K.ScanMode()); self:Render() end}}})
             end
         end
@@ -127,9 +130,8 @@ function UI:Render()
     local selected = R.Pair(p.key)
     if selected then
         self.inspector:SetProps({id = selected.big})
-        self:Panel(selected, R.Evaluate(selected, p.fee))
+        self:Panel(selected, R.Evaluate(selected, ns.Fee()))
     else self.inspector:Clear() end
-    self.feeSegment:Select(p.fee)
     self:Controls()
 end
 function UI:NewTable(f)
@@ -170,14 +172,10 @@ function UI:NewTable(f)
 end
 function UI:NewBottom(f)
     local K = ns.TradeKit
-    self.feeSegment = K.Segment(f, {{key = 0.05, label = ns.T("deFeeOption", 5)}, {key = 0.15, label = ns.T("deFeeOption", 15)}},
-        function(fee) self:SetProps({fee = fee}) end)
-    self.feeSegment.frame:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 4)
-    K.Tooltip(self.feeSegment.frame, ns.T("tradeFeeTitle"), ns.T("tradeFeeTip"))
     self.buyBig = K.Button(f, ns.T("recycleBuyBig"), 120, function()
         local pair = ns.Recycle.Pair(self.props.key); if pair then ns.Trader.OpenBuy(pair.big) end
     end)
-    self.buyBig:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
+    self.buyBig:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -428, 4)
     self.buySmall = K.Button(f, ns.T("recycleBuySmall"), 120, function()
         local pair = ns.Recycle.Pair(self.props.key); if pair then ns.Trader.OpenBuy(pair.small) end
     end)
@@ -202,23 +200,19 @@ function UI:NewPanel()
     end)
     self.panelChild = c
     self.formula = K.Label(c, "", 12, -4, 188, "heading"); self.formula:SetHeight(14)
-    self.priceValues = {}
+    self.priceValues, self.priceLabels = {}, {}
     for i, key in ipairs({"recyclePriceSmall", "recyclePriceBig"}) do
         local y = -22 - (i - 1) * 14
-        local label = K.Label(c, ns.T(key), 12, y, 130, "secondary"); label:SetHeight(12)
-        local value = K.Label(c, "", 0, y, 110); value:SetHeight(12); value:SetJustifyH("RIGHT")
-        value:ClearAllPoints(); value:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, y)
-        self.priceValues[i] = value
+        local label, value = K.ValueRow(c, ns.T(key), y, 130, 110)
+        self.priceLabels[i], self.priceValues[i] = label, value
     end
     K.Rule(c, -54)
     K.Label(c, ns.T("recyclePerUnit"), 12, -62, 234, "heading")
-    self.outcomeValues = {}
+    self.outcomeValues, self.outcomeLabels = {}, {}
     for i, key in ipairs({"recycleAsIs", "recycleSplit", "recycleAssemble"}) do
         local y = -82 - (i - 1) * 14
-        local label = K.Label(c, ns.T(key), 12, y, 150, "secondary"); label:SetHeight(12)
-        local value = K.Label(c, "", 0, y, 100); value:SetHeight(12); value:SetJustifyH("RIGHT")
-        value:ClearAllPoints(); value:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, y)
-        self.outcomeValues[i] = value
+        local label, value = K.ValueRow(c, ns.T(key), y, 150, 100)
+        self.outcomeLabels[i], self.outcomeValues[i] = label, value
     end
     self.advice = K.Label(c, "", 12, -128, 234); self.advice:SetHeight(28); self.advice:SetJustifyV("TOP")
     self.have = K.Label(c, "", 12, -160, 234, "secondary"); self.have:SetHeight(12)
@@ -244,8 +238,8 @@ function UI:New(parent)
     f:SetAllPoints(parent)
     self:NewTable(f)
     self:NewBottom(f)
-    self.scan = K.Button(f, ns.T("recycleScanAll"), 264, function() ns.Recycle.CompleteAll(K.ScanMode()); self:Render() end, "main")
-    self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -6, -3)
+    self.scan = K.Button(f, ns.T("recycleScanAll"), 140, function() ns.Recycle.CompleteAll(K.ScanMode()); self:Render() end, "main")
+    self.scan:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     K.Tooltip(self.scan, ns.T("recycleScanAll"), ns.T("recycleScanAllTip"))
     self.scan.tipFn = function() return ns.T("recycleScanAllTip") .. "\n\n" .. ns.Batch.PreviewText(ns.Recycle.Targets(), true) end
     self:NewPanel()

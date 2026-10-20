@@ -286,3 +286,29 @@ end
 function L.Complete(options, all, force)
     return ns.Batch.Complete(L.Targets(options, all), force, true)
 end
+function L.Brackets(route)
+    local ranks = {1, 75, 150, 225, 300, 375, 450}
+    local groups = {}
+    for _, step in ipairs(route.steps) do
+        local key = 1
+        while key < 6 and step.first >= ranks[key + 1] do key = key + 1 end
+        local group = groups[#groups]
+        if not group or group.key ~= key then
+            group = {key = key, first = ranks[key], target = ranks[key + 1], steps = {}}
+            groups[#groups + 1] = group
+        end
+        group.steps[#group.steps + 1] = step
+    end
+    local prefix = {inputs = {}, options = route.options, unavailable = route.unavailable}
+    local previousCost, previousCash = 0, 0
+    for _, group in ipairs(groups) do
+        for _, step in ipairs(group.steps) do
+            for id, count in pairs(step.inputs) do prefix.inputs[id] = (prefix.inputs[id] or 0) + count end
+        end
+        local basket = L.Basket(prefix)
+        group.cost = basket.cost and previousCost and basket.cost - previousCost or nil
+        group.cash = basket.cash and previousCash and basket.cash - previousCash or nil
+        previousCost, previousCash = basket.cost, basket.cash
+    end
+    return groups
+end

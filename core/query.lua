@@ -35,9 +35,11 @@ function Q.Send(name, page, mass, filter)
     local class = filter and filter.classIndex
     local sub = filter and filter.subClassIndex
     if filter and filter.scope == "disenchant" then ns.Disenchant.Sort(filter) end
-    ns.Store.Log("query page=" .. tostring(page or 0) .. " name=" .. Q.Name(name)
-        .. " class=" .. tostring(class or 0) .. ":" .. tostring(sub or 0)
-        .. " gap=" .. string.format("%.2f", gap) .. " all=" .. tostring(mass or false))
+    if (page or 0) == 0 or mass then
+        ns.Store.Log("query page=" .. tostring(page or 0) .. " name=" .. Q.Name(name)
+            .. " class=" .. tostring(class or 0) .. ":" .. tostring(sub or 0)
+            .. " gap=" .. string.format("%.2f", gap) .. " all=" .. tostring(mass or false))
+    end
     QueryAuctionItems(Q.Name(name), filter and filter.minLevel, filter and filter.maxLevel, nil,
         class, sub, page, nil, filter and filter.minQuality, mass or false)
     return true

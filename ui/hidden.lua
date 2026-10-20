@@ -26,7 +26,8 @@ function UI:Render()
         label:SetWidth(columns[key][2])
     end
     self.sorter:Mark()
-    self.title:SetText(ns.T("hiddenTitle", #entries))
+    self.statusText = ns.T("hiddenTitle", #entries)
+    ns.Trader.RenderStatus()
     local visible = K.ListCapacity(self.frame, 56, 56, 29, #self.rows)
     local offset = self.scroll:SetRange(#entries, visible)
     local selected
@@ -36,7 +37,7 @@ function UI:Render()
         local recipe = i <= visible and entries[offset + i]
         if recipe then
             local q = ns.Markets.Quote(recipe.raw)
-            row:SetProps({id = recipe.raw, quote = q, width = width, reserve = 70, reveal = true, active = recipe.raw == self.selected,
+            row:SetProps({id = recipe.raw, quote = q, width = width, reserve = 70, active = recipe.raw == self.selected,
                 detail = ns.T(ns.craftCatalogs[recipe.profession].labelKey) .. " | " .. ns.T(recipe.category),
                 hidden = true, hideable = true, noRefresh = true, hideLabel = ns.T("hiddenRestore")})
         else row.frame:Hide() end
@@ -61,11 +62,10 @@ function UI:New(parent)
     for _, key in ipairs(ns.Hidden.Categories()) do categories[#categories + 1] = {key = key, labelKey = key} end
     self.category = K.Menu(f, categories, function(key) self:SetProps({category = key ~= "all" and key or false}) end)
     self.category.frame:SetWidth(190); self.category.frame:SetPoint("LEFT", self.profession.frame, "RIGHT", 8, 0)
-    self.title = K.Label(f, "", 410, -11, 240, "heading")
     self.restoreAll = K.Button(f, ns.T("hiddenRestoreAll"), 140, function()
         ns.Hidden.Restore(self.props.profession or nil, self.props.category or nil); ns.Trader.Refresh()
     end, "main")
-    self.restoreAll:SetPoint("TOPRIGHT", f, "TOPRIGHT", -282, -5)
+    self.restoreAll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     K.Tooltip(self.restoreAll, ns.T("hiddenRestoreAll"), ns.T("hiddenRestoreAllTip"))
     K.TableHeader(f, -38)
     self.headers = {}
@@ -77,7 +77,7 @@ function UI:New(parent)
     self.headers.margin = K.Label(f, "", 0, -38, 100)
     self.scroll = K.TableScroll(f, function() self:Render() end, 56, 56, 29)
     for i = 1, 40 do
-        local row = K.MarketRow:New(f, function(id) self.selected = id; self:Render() end, nil, nil,
+        local row = K.MarketRow:New(f, function(id) self.selected = id; self:Render() end, nil,
             function(id) ns.Hidden.Toggle(id); ns.Trader.Refresh() end)
         row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -56 - (i - 1) * 29)
         row.frame:SetHeight(28); self.rows[i] = row; self.scroll:Wheel(row.frame)

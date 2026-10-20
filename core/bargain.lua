@@ -123,6 +123,18 @@ function B.NextBid(lot)
     if lot.bid > 0 then return lot.bid + B.Increment(lot.bid) end
     return lot.minBid
 end
+function B.Vendor(item, count, buyout, nextBid)
+    local unit = select(11, ns.Compat.ItemInfo(item))
+    if type(unit) ~= "number" or unit <= 0 or count <= 0 then return nil end
+    local total = unit * count
+    local deal = {unit = unit, total = total, nextBid = nextBid}
+    if buyout > 0 and buyout < total then deal.buyout = total - buyout end
+    if nextBid and nextBid > 0 and nextBid < total and not (buyout > 0 and nextBid >= buyout) then
+        deal.bid = total - nextBid
+    end
+    if not deal.buyout and not deal.bid then return nil end
+    return deal
+end
 function B.Left(scan, timeLeft, now)
     local range = RANGES[timeLeft]
     if not range then return nil, nil end
@@ -145,7 +157,48 @@ local function makeRow(kind, key, scan, lot, g, ref, cost, fee)
         hasBuyout = lot.buyout > 0, cost = cost, unit = cost / lot.count, ref = ref,
         discount = (1 - (cost / lot.count) / ref) * 100, resale = resale, revenue = resale.revenue,
         profit = resale.revenue - cost, supply = #g.offers, copies = 1, scanID = scan.id, history = g.history,
+        vendor = B.Vendor(lot.item, lot.count, lot.buyout, B.NextBid(lot)),
     }
+end
+local function makeVendorRow(kind, key, scan, lot, g, deal)
+    local cost = kind == "bid" and deal.nextBid or lot.buyout
+    local ref = #g.offers >= B.MIN_LOTS and (g.full or reference(g, nil)) or nil
+    g.full = ref
+    return {
+        kind = kind, mode = "vendor", key = key, buyKey = ns.Lot.Key(lot.item, lot.suffix, lot.count, lot.buyout, lot.owner),
+        item = lot.item, suffix = lot.suffix, count = lot.count, owner = lot.owner,
+        minBid = lot.minBid, buyout = lot.buyout, bid = lot.bid, timeLeft = lot.timeLeft,
+        hasBuyout = lot.buyout > 0, cost = cost, unit = cost / lot.count, ref = ref, vendor = deal,
+        profit = deal.total - cost, supply = #g.offers, copies = 1, scanID = scan.id,
+    }
+end
+local function vendorRows(scan, now, info)
+    local rows, byKey = {}, {}
+    for _, g in pairs(groups(scan)) do
+        info.groups = info.groups + 1
+        for _, index in ipairs(g.lots) do
+            local lot = ns.Lot.Decode(scan.lots[index])
+            local deal = B.Vendor(lot.item, lot.count, lot.buyout, B.NextBid(lot))
+            local kind = deal and deal.buyout and "buyout" or nil
+            if deal and not kind and deal.bid and (lot.timeLeft == 1 or lot.timeLeft == 2) then
+                local maximum = B.Left(scan, lot.timeLeft, now)
+                if maximum and maximum > 0 then kind = "bid" else info.hidden = info.hidden + 1 end
+            end
+            if kind then
+                info.candidates = info.candidates + 1
+                local key = rowKey(lot)
+                local row = byKey[key]
+                if row then
+                    row.copies = row.copies + 1
+                elseif B.placed[key] ~= scan.id then
+                    row = makeVendorRow(kind, key, scan, lot, g, deal)
+                    byKey[key] = row
+                    rows[#rows + 1] = row
+                end
+            end
+        end
+    end
+    return rows
 end
 function B.Rows(kind, options)
     local scan = B.Snapshot()
@@ -154,12 +207,13 @@ function B.Rows(kind, options)
     local now = options.now or time()
     local percent = options.percent or B.PERCENT[kind]
     local fee = options.fee or 0.05
-    local sig = table.concat({scan.id, #scan.lots, kind, percent, fee, math.floor(now / 60), B.revision, ns.Store.DB().seq}, "|")
+    local sig = table.concat({scan.id, #scan.lots, kind, percent or 0, fee, math.floor(now / 60), B.revision, ns.Store.DB().seq}, "|")
     if cached and cached.sig == sig then return cached.rows, cached.info end
     info.age = B.Age(scan, now)
     local rows, byKey = {}, {}
     local me = UnitName("player")
-    for _, g in pairs(groups(scan)) do
+    if kind == "vendor" then rows = vendorRows(scan, now, info) end
+    for _, g in pairs(kind ~= "vendor" and groups(scan) or {}) do
         info.groups = info.groups + 1
         local market = #g.offers >= B.MIN_LOTS and (g.full or reference(g, nil)) or nil
         g.full = market
@@ -206,13 +260,14 @@ function B.Rows(kind, options)
     end
     table.sort(rows, function(a, b)
         if a.profit ~= b.profit then return a.profit > b.profit end
-        if a.discount ~= b.discount then return a.discount > b.discount end
+        local left, right = a.discount or 0, b.discount or 0
+        if left ~= right then return left > right end
         return a.key < b.key
     end)
     info.total = #rows
     for i = #rows, B.MAX_ROWS + 1, -1 do rows[i] = nil end
     for _, row in ipairs(rows) do
-        if kind == "bid" then
+        if row.kind == "bid" then
             row.leftMax, row.leftMin = B.Left(scan, row.timeLeft, now)
         end
     end

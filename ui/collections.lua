@@ -1,26 +1,24 @@
 local _, ns = ...
-local UI = {props = {mode = "favorites", fee = 0.05}, rows = {}}
+local UI = {props = {mode = "favorites"}, rows = {}}
 ns.CollectionsUI = UI
 function UI:SetProps(props)
-    for key, value in pairs(props) do self.props[key] = value end
+    for key, value in pairs(props) do if key ~= "fee" then self.props[key] = value end end
     self.selected = nil; self.scroll.offset = 0; self:Render()
 end
 function UI:Render()
     if not self.frame then return end
     local K, C, p = ns.TradeKit, ns.Collections, self.props
-    local events = ns.seasonalEvents or {}
-    if not p.event then p.event = events[1] and events[1].key end
-    local entries = C.Items(p.mode, p.event)
+    local entries = C.Items(p.mode)
     for _, entry in ipairs(entries) do
         local q, margin = ns.Markets.Quote(entry.raw)
         local recipe, family = ns.Crafting.byItem[entry.raw], ns.gemByItem[entry.raw]
-        local detail = entry.noteKey and ns.T(entry.noteKey) or ""
+        local detail = ""
         if recipe then
-            margin = ns.CraftPlan.Build(recipe, {fee = p.fee}).margin
+            margin = ns.CraftPlan.Build(recipe, {fee = ns.Fee()}).margin
             detail = ns.T(ns.craftCatalogs[recipe.profession].labelKey)
         elseif family and family.raw ~= entry.raw then
             local raw = ns.Markets.Quote(family.raw)
-            if q and q.price and raw and raw.price and q.miss == 0 and raw.miss == 0 then margin = q.price * (1 - p.fee) - raw.price end
+            if q and q.price and raw and raw.price and q.miss == 0 and raw.miss == 0 then margin = q.price * (1 - ns.Fee()) - raw.price end
             detail = ns.T("jewelrySection")
         end
         if q and not q.vendor then detail = detail .. ns.T("cacheAge", math.max(0, math.floor((time() - q.at) / 60))) end
@@ -33,18 +31,11 @@ function UI:Render()
         units = function(entry) return entry.quote and entry.quote.units end,
     })
     self.sorter:Mark()
-    self.mode.frame:SetText(ns.T(p.mode == "favorites" and "collectionFavorites" or
-        (p.mode == "seasonal" and "collectionSeasonal" or "collectionTracked")))
-    local event
-    for _, candidate in ipairs(events) do if candidate.key == p.event then event = candidate end end
-    if p.mode == "seasonal" then
-        self.eventMenu.frame:Show(); self.input:Hide(); self.add:Hide()
-        self.eventMenu.frame:SetText(event and ns.T(event.labelKey) or "")
-        self.hint:SetText(event and ns.T(event.timingKey) or "")
-    elseif p.mode == "tracked" then
-        self.eventMenu.frame:Hide(); self.input:Show(); self.add:Show(); self.hint:SetText("")
+    self.mode.frame:SetText(ns.T(p.mode == "favorites" and "collectionFavorites" or "collectionTracked"))
+    if p.mode == "tracked" then
+        self.input:Show(); self.add:Show()
     else
-        self.eventMenu.frame:Hide(); self.input:Hide(); self.add:Hide(); self.hint:SetText(ns.T("collectionFavoriteHint"))
+        self.input:Hide(); self.add:Hide()
     end
     local width = (self.frame:GetWidth() or 996) - 310
     local columns = K.MarketColumns(width)
@@ -60,23 +51,23 @@ function UI:Render()
         local entry = entries[offset + i]
         if i > self.scroll.visible then entry = nil end
         if entry then
-            row:SetProps({id = entry.raw, quote = entry.quote, margin = entry.margin, width = width, reveal = true,
-                active = entry.raw == self.selected, detail = entry.detail, extraTip = entry.noteKey and ns.T(entry.noteKey)})
+            row:SetProps({id = entry.raw, quote = entry.quote, margin = entry.margin, width = width,
+                active = entry.raw == self.selected, detail = entry.detail})
         else row.frame:Hide() end
     end
-    self.empty:SetText(#entries == 0 and ns.T(p.mode == "seasonal" and "seasonNoAuctionItems" or "collectionEmpty") or "")
+    self.empty:SetText(#entries == 0 and ns.T("collectionEmpty") or "")
     if selected then
-        self.inspector:SetProps({id = selected.raw}); self.inspector.item:Show(); self.inspector.offers:Show()
-        self.inspector.actions.frame:Show()
+        self.inspector:SetProps({id = selected.raw})
         local q = ns.Markets.Quote(selected.raw)
-        self.summary:SetText(ns.T("familyCurrentPrice", K.Money(q and q.price)) .. "\n\n"
-            .. (q and not q.vendor and ns.T("cacheObserved", date("%d.%m %H:%M", q.at)) or "")
-            .. "\n\n" .. (selected.noteKey and ns.T(selected.noteKey) or ns.T("collectionHistoryHint")))
+        self.price:SetText(K.Money(q and q.price))
+        self.observed:SetText(q and not q.vendor and date("%d.%m %H:%M", q.at) or ns.T("tradeNoPrice"))
+        self.summary:SetText(ns.T("collectionHistoryHint"))
         if C.CanFavorite(selected.raw) then self.open:Show() else self.open:Hide() end
-        self.history:Enable(); self.buy:Enable()
+        self.buy:Enable()
     else
         self.inspector:Clear()
-        self.summary:SetText(ns.T("collectionActionsTip")); self.open:Hide(); self.history:Disable(); self.buy:Disable()
+        self.summary:SetText(ns.T("collectionActionsTip")); self.open:Hide(); self.buy:Disable()
+        self.price:SetText(""); self.observed:SetText("")
     end
     if ns.Scan.state.phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
 end
@@ -84,13 +75,9 @@ function UI:New(parent)
     local K = ns.TradeKit
     local f = ns.NewFrame("Frame", nil, parent); f:SetAllPoints(parent); self.frame = f
     self.mode = K.Menu(f, {{key = "favorites", labelKey = "collectionFavorites"},
-        {key = "tracked", labelKey = "collectionTracked"}, {key = "seasonal", labelKey = "collectionSeasonal"}},
+        {key = "tracked", labelKey = "collectionTracked"}},
         function(mode) self:SetProps({mode = mode}) end)
     self.mode.frame:SetWidth(120); self.mode.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -3)
-    local eventEntries = {}
-    for _, event in ipairs(ns.seasonalEvents or {}) do eventEntries[#eventEntries + 1] = {key = event.key, labelKey = event.labelKey} end
-    self.eventMenu = K.Menu(f, eventEntries, function(key) self:SetProps({event = key}) end)
-    self.eventMenu.frame:SetWidth(190); self.eventMenu.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 134, -3)
     self.input = K.Edit(f, 220); self.input:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -36)
     K.Tooltip(self.input, ns.T("collectionTracked"), ns.T("collectionInputTip"))
     local function add()
@@ -100,11 +87,11 @@ function UI:New(parent)
     self.input:SetScript("OnEnterPressed", add)
     self.add = K.Button(f, ns.T("collectionAdd"), 84, add)
     self.add:SetPoint("LEFT", self.input, "RIGHT", 6, 0)
-    self.hint = K.Label(f, "", 10, -38, 460); self.hint:SetHeight(32); self.hint:SetJustifyV("TOP")
+    K.Tooltip(self.mode.frame, ns.T("collectionTitle"), ns.T("collectionFavoriteHint"))
     self.scan = K.Button(f, ns.T("collectionScan"), 140, function()
-        ns.Collections.Scan(self.props.mode, self.props.event, K.ScanMode()); self:Render()
+        ns.Collections.Scan(self.props.mode, K.ScanMode()); self:Render()
     end, "main")
-    self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -282, -5)
+    self.scan:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     K.Tooltip(self.scan, ns.T("collectionScan"), ns.T("collectionScanTip"))
     K.TableHeader(f, -74)
     self.headers = {}
@@ -122,12 +109,13 @@ function UI:New(parent)
     end
     self.empty = K.Label(f, "", 10, -104, 440); self.empty:SetHeight(64)
     self.buy = K.Button(f, ns.T("tradeBuy"), 84, function() if self.selected then ns.Trader.OpenBuy(self.selected) end end)
-    self.buy:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
+    self.buy:SetPoint("RIGHT", self.scan, "LEFT", -6, 0)
     self.inspector = K.Inspector:New(f)
     local panel = self.inspector.body
-    self.summary = K.Label(panel, "", 12, -48, 240); self.summary:SetHeight(200); self.summary:SetJustifyV("TOP")
-    self.history = K.Button(panel, ns.T("itemHistory"), 114, function() K.Inspector.Switch("market", self.selected) end)
-    self.history:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 12, 40)
+    local label
+    label, self.price = K.ValueRow(panel, ns.T("collectionPrice"), -48)
+    label, self.observed = K.ValueRow(panel, ns.T("collectionObserved"), -70)
+    self.summary = K.Label(panel, "", 12, -98, 240); self.summary:SetHeight(200); self.summary:SetJustifyV("TOP")
     self.open = K.Button(panel, ns.T("collectionOpenRecipe"), 150, function() if self.selected then ns.Collections.OpenRecipe(self.selected) end end)
     self.open:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 12, 8)
     f:SetScript("OnSizeChanged", function() self:Render() end)

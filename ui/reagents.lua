@@ -1,5 +1,5 @@
 local _, ns = ...
-local UI = {props = {id = 36905, page = 1, fee = 0.05}, rows = {}, bagRows = {}, scope = "all", drafts = {}}
+local UI = {props = {id = 36905, page = 1}, rows = {}, bagRows = {}, scope = "all", drafts = {}}
 ns.ReagentsUI = UI
 local BAG_ROW = 26
 local function gold(copper)
@@ -11,7 +11,7 @@ function UI:SetProps(props)
     if props.id and props.id ~= self.props.id and self.scope == "all" then
         if self.scroll then self.scroll.offset = 0 end
     end
-    for key, value in pairs(props) do self.props[key] = value end
+    for key, value in pairs(props) do if key ~= "fee" then self.props[key] = value end end
     self:Render()
 end
 function UI:Draft(id)
@@ -24,21 +24,20 @@ function UI:Draft(id)
 end
 function UI:State()
     local d = self:Draft(self.props.id)
-    return {fee = self.props.fee, mode = d.mode, price = d.price, size = d.size, lots = d.lots, hours = d.hours}
+    return {fee = ns.Fee(), mode = d.mode, price = d.price, size = d.size, lots = d.lots, hours = d.hours}
 end
 function UI:Controls()
     if not self.frame then return end
     local phase = ns.Scan.state.phase
     if phase == "idle" and not ns.Buy.Active() then self.scan:Enable() else self.scan:Disable() end
     if ns.vendorPrices[self.props.id] then self.buy:Disable() else self.buy:Enable() end
-    if ns.vendorPrices[self.props.id] then self.refresh:Hide() else self.refresh:Show() end
     if ns.Crafting.byItem[self.props.id] then self.obtain:Show() else self.obtain:Hide() end
 end
 function UI:SetScope(scope)
     self.scope = scope
     if self.scroll then self.scroll.offset = 0 end
     if scope == "bags" then
-        local rows = ns.Reagents.BagItems(self.props.fee)
+        local rows = ns.Reagents.BagItems(ns.Fee())
         local present = false
         for _, row in ipairs(rows) do if row.id == self.props.id then present = true end end
         if not present and rows[1] then self.props.id = rows[1].id end
@@ -48,7 +47,7 @@ end
 function UI:RenderUses()
     local K, p = ns.TradeKit, self.props
     local packs = self.mode == "packs"
-    local uses, items = packs and ns.Reagents.Packs(p.id, p.fee) or ns.Reagents.Uses(p.id, p.fee), ns.Reagents.Items()
+    local uses, items = packs and ns.Reagents.Packs(p.id, ns.Fee()) or ns.Reagents.Uses(p.id, ns.Fee()), ns.Reagents.Items()
     local function quote(id) return ns.Markets.Quote(id) end
     uses = self.sorter:Apply(uses, {
         item = function(use) return ns.Markets.Name(packs and use.raw or use.recipe.raw) end,
@@ -82,13 +81,13 @@ function UI:RenderUses()
         local use = i <= visible and uses[offset + i]
         if use then
             if packs then
-                row:SetProps({id = use.raw, quote = {price = use.price, units = use.lots}, width = width, reveal = true,
+                row:SetProps({id = use.raw, quote = {price = use.price, units = use.lots}, width = width,
                     margin = use.premium, detail = ns.T("packDetail", use.count, use.needed, K.Money(use.net)),
                     extraTip = ns.T("packTip", ns.Markets.Name(p.id), use.count)})
             else
                 local recipe = use.recipe
                 local detail = ns.T("reagentUse", use.count, ns.T(ns.craftCatalogs[recipe.profession].labelKey))
-                row:SetProps({id = recipe.raw, quote = ns.Markets.Quote(recipe.raw), width = width, reveal = true,
+                row:SetProps({id = recipe.raw, quote = ns.Markets.Quote(recipe.raw), width = width,
                     margin = use.gain, detail = detail})
             end
         else row.frame:Hide() end
@@ -98,7 +97,7 @@ function UI:RenderUses()
 end
 function UI:RenderBags()
     local K, p = ns.TradeKit, self.props
-    local rows = ns.Reagents.BagItems(p.fee)
+    local rows = ns.Reagents.BagItems(ns.Fee())
     rows = self.bagSorter:Apply(rows, {
         item = function(row) return ns.Markets.Name(row.id) end,
         count = function(row) return row.count end,
@@ -139,7 +138,7 @@ function UI:RenderBags()
 end
 function UI:Options()
     local K, p = ns.TradeKit, self.props
-    local options = ns.Reagents.Options(p.id, p.fee)
+    local options = ns.Reagents.Options(p.id, ns.Fee())
     local q = ns.Markets.Quote(p.id)
     local names = {}
     local sell, craft, recycle = options[1], options[2], options[3]
@@ -239,7 +238,7 @@ function UI:Render()
         local uses = self:RenderUses()
         count = #uses
         self.bagSorter:Mark()
-        self.scan:SetText(ns.T("scanSelection"))
+        self.scan:SetText(ns.T("matScanUses"))
     end
     self.inspector:SetProps({id = p.id})
     local q = ns.Markets.Quote(p.id)
@@ -255,9 +254,26 @@ function UI:Render()
     K.Tooltip(self.help, ns.T("matPanelTitle"), ns.T("matPanelTip") .. guide
         .. "\n\n" .. (activity and ns.T("marketActivityShort", activity.added, activity.gone, activity.beforeExpiry) or "")
         .. "\n\n" .. ns.T("marketActivityTip"))
-    self.fee:SetText(ns.T("tradeFee", math.floor(p.fee * 100 + 0.5)))
     self.count = count
+    self:FitPanel()
     self:Controls()
+end
+function UI:FitPanel()
+    local room = (self.inspector.body:GetHeight() or 0) - 44
+    local fits = room <= 0 or self.panelHeight <= room
+    self.scrollBody:ClearAllPoints()
+    self.scrollBody:SetPoint("TOPLEFT", self.inspector.body, "TOPLEFT", 0, -40)
+    self.scrollBody:SetPoint("BOTTOMRIGHT", self.inspector.body, "BOTTOMRIGHT", fits and -6 or -26, 4)
+    ns.TradeKit.PanelScrollBar(self.scrollBody, fits)
+    self.panelChild:SetWidth(fits and 258 or 236)
+    self.panelChild:SetHeight(self.panelHeight)
+    local width = fits and 258 or 236
+    self.lotsEdit:ClearAllPoints(); self.lotsEdit:SetPoint("TOPLEFT", self.panelChild, "TOPLEFT", width - 58, -266)
+    self.priceEdit:SetWidth(width - 174)
+    self.priceNote:SetWidth(44)
+    local inner = (fits and 258 or 236) - 24
+    for _, row in ipairs(self.optionRows) do row.detail:SetWidth(inner) end
+    for _, label in ipairs({self.age, self.wall1, self.wall2, self.floor, self.sizeHint, self.total}) do label:SetWidth(inner) end
 end
 function UI:Field(parent, x, y, width, apply)
     local K = ns.TradeKit
@@ -285,16 +301,16 @@ function UI:New(parent)
     self.scan = K.Button(f, ns.T("scanSelection"), 140, function()
         if self.scope == "bags" then
             local ids = {}
-            for _, row in ipairs(ns.Reagents.BagItems(self.props.fee)) do ids[#ids + 1] = row.id end
+            for _, row in ipairs(ns.Reagents.BagItems(ns.Fee())) do ids[#ids + 1] = row.id end
             ns.Batch.Complete(ids, K.ScanMode(), true)
-        else ns.Batch.Complete({self.props.id}, K.ScanMode()) end
+        else ns.Reagents.Complete(self.props.id, K.ScanMode()) end
         self:Render()
     end, "main")
-    self.scan:SetPoint("TOPRIGHT", f, "TOPRIGHT", -282, -5)
+    self.scan:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
     self.scan.tipFn = function()
         if self.scope ~= "bags" then return ns.T("scanReagentSelectionTip") end
         local ids = {}
-        for _, row in ipairs(ns.Reagents.BagItems(self.props.fee)) do ids[#ids + 1] = row.id end
+        for _, row in ipairs(ns.Reagents.BagItems(ns.Fee())) do ids[#ids + 1] = row.id end
         return ns.T("matScanBagsTip") .. "\n\n" .. ns.Batch.PreviewText(ids, true)
     end
     K.Tooltip(self.scan, ns.T("scanSelection"), ns.T("scanReagentSelectionTip"))
@@ -320,7 +336,7 @@ function UI:New(parent)
     for i = 1, 40 do
         local row = K.MarketRow:New(f, function(id)
             local recipe = ns.Crafting.byItem[id]
-            if recipe then ns.Trader.OpenRecipe(recipe.profession, id, self.props.fee) end
+            if recipe then ns.Trader.OpenRecipe(recipe.profession, id) end
         end)
         row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -56 - (i - 1) * 29)
         row.frame:SetHeight(28)
@@ -334,47 +350,51 @@ function UI:New(parent)
     end
     self.empty = K.Label(f, "", 10, -66, 370)
     self.empty:SetHeight(60); self.empty:SetJustifyV("TOP")
-    self.fee = K.Button(f, "", 106, function() self:SetProps({fee = self.props.fee == 0.05 and 0.15 or 0.05}) end)
-    self.fee:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 4)
     self.buy = K.Button(f, ns.T("tradeBuy"), 84, function() ns.Trader.OpenBuy(self.props.id) end)
-    self.buy:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -282, 4)
+    self.buy:SetPoint("RIGHT", self.scan, "LEFT", -6, 0)
     self.inspector = K.Inspector:New(f)
     local panel = self.inspector.body
+    self.scrollBody = ns.NewFrame("ScrollFrame", "ManaCodeMaterialsPanelScroll", panel, "UIPanelScrollFrameTemplate")
+    self.scrollBody.scrollBarHideable = 1
+    self.panelChild = ns.NewFrame("Frame", nil, self.scrollBody)
+    self.panelHeight = 438
+    self.panelChild:SetWidth(258); self.panelChild:SetHeight(self.panelHeight)
+    self.scrollBody:SetScrollChild(self.panelChild)
+    self.panelChild:EnableMouseWheel(true)
+    self.panelChild:SetScript("OnMouseWheel", function(_, delta)
+        if ScrollFrameTemplate_OnMouseWheel then ScrollFrameTemplate_OnMouseWheel(self.scrollBody, delta) end
+    end)
+    panel = self.panelChild
     self.selection = self.inspector.item
-    K.Label(panel, ns.T("matDo"), 12, -44, 240, "heading"):SetHeight(14)
+    K.Label(panel, ns.T("matDo"), 12, -4, 240, "heading"):SetHeight(14)
     self.optionRows = {}
-    for i, y in ipairs({-60, -86, -112}) do
-        local label, value = K.ValueRow(panel, "", y)
+    for i, y in ipairs({-20, -46, -72}) do
+        local label, value = K.ValueRow(panel, "", y, 106, 100)
         local detail = K.Label(panel, "", 12, y - 13, 240, "secondary")
         detail:SetHeight(12)
         self.optionRows[i] = {label = label, value = value, detail = detail}
     end
-    self.age = K.Label(panel, "", 12, -142, 240, "secondary")
+    self.age = K.Label(panel, "", 12, -102, 240, "secondary")
     self.age:SetHeight(12)
-    self.refresh = K.Button(panel, ns.T("tradeUpdate"), 90, function()
-        ns.Batch.Start({self.props.id}); self:Render()
-    end)
-    self.refresh:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -158)
-    K.Tooltip(self.refresh, ns.T("cacheRefreshItem"), ns.T("cacheRefreshTip"))
     self.obtain = K.Button(panel, ns.T("reagentObtain"), 128, function()
         local recipe = ns.Crafting.byItem[self.props.id]
-        if recipe then ns.Trader.OpenRecipe(recipe.profession, recipe.raw, self.props.fee) end
+        if recipe then ns.Trader.OpenRecipe(recipe.profession, recipe.raw) end
     end)
-    self.obtain:SetPoint("LEFT", self.refresh, "RIGHT", 8, 0)
-    K.Rule(panel, -186)
-    K.Label(panel, ns.T("postTitle"), 12, -192, 140, "heading"):SetHeight(14)
-    self.stock = K.Label(panel, "", 0, -192, 100, "secondary")
-    self.stock:ClearAllPoints(); self.stock:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -193)
+    self.obtain:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -118)
+    K.Rule(panel, -146)
+    K.Label(panel, ns.T("postTitle"), 12, -152, 140, "heading"):SetHeight(14)
+    self.stock = K.Label(panel, "", 0, -152, 100, "secondary")
+    self.stock:ClearAllPoints(); self.stock:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -153)
     self.stock:SetHeight(12); self.stock:SetJustifyH("RIGHT")
-    self.wall1 = K.Label(panel, "", 12, -208, 240); self.wall1:SetHeight(12)
-    self.wall2 = K.Label(panel, "", 12, -221, 240, "secondary"); self.wall2:SetHeight(12)
-    K.Label(panel, ns.T("postPrice"), 12, -243, 110):SetHeight(12)
-    self.priceEdit = self:Field(panel, 124, -238, 84, function(text)
+    self.wall1 = K.Label(panel, "", 12, -168, 240); self.wall1:SetHeight(12)
+    self.wall2 = K.Label(panel, "", 12, -181, 240, "secondary"); self.wall2:SetHeight(12)
+    K.Label(panel, ns.T("postPrice"), 12, -203, 110):SetHeight(12)
+    self.priceEdit = self:Field(panel, 124, -198, 84, function(text)
         local d = self:Draft(self.props.id)
         if text:match("^%s*$") then d.price = nil else d.price = ns.Accounting.Price(text) or d.price end
     end)
     K.Tooltip(self.priceEdit, ns.T("postPrice"), ns.T("postPriceTip"))
-    self.priceNote = K.Label(panel, "", 0, -243, 40, "secondary")
+    self.priceNote = K.Label(panel, "", 0, -203, 40, "secondary")
     self.priceNote:ClearAllPoints(); self.priceNote:SetPoint("TOPLEFT", self.priceEdit, "TOPRIGHT", 6, -5)
     self.priceNote:SetWidth(44); self.priceNote:SetHeight(12)
     self.modeSegment = K.Segment(panel, {{key = "under", label = ns.T("postUnder")}, {key = "near", label = ns.T("postNear")}},
@@ -383,40 +403,40 @@ function UI:New(parent)
             d.mode, d.price = mode, nil
             self:Render()
         end)
-    self.modeSegment.frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -264)
+    self.modeSegment.frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -224)
     K.Tooltip(self.modeSegment.frame, ns.T("postModeTitle"), ns.T("postModeTip"))
-    self.floor = K.Label(panel, "", 12, -290, 240, "secondary"); self.floor:SetHeight(12)
-    K.Label(panel, ns.T("postSize"), 12, -311, 70):SetHeight(12)
-    self.sizeEdit = self:Field(panel, 78, -306, 46, function(text)
+    self.floor = K.Label(panel, "", 12, -250, 240, "secondary"); self.floor:SetHeight(12)
+    K.Label(panel, ns.T("postSize"), 12, -271, 70):SetHeight(12)
+    self.sizeEdit = self:Field(panel, 78, -266, 46, function(text)
         local d = self:Draft(self.props.id)
         d.size = tonumber(text) and math.max(1, math.floor(tonumber(text))) or nil
     end)
     K.Tooltip(self.sizeEdit, ns.T("postSize"), ns.T("postSizeTip"))
-    K.Label(panel, ns.T("postLots"), 140, -311, 56):SetHeight(12)
-    self.lotsEdit = self:Field(panel, 196, -306, 46, function(text)
+    K.Label(panel, ns.T("postLots"), 132, -271, 40):SetHeight(12)
+    self.lotsEdit = self:Field(panel, 196, -266, 46, function(text)
         local d = self:Draft(self.props.id)
         d.lots = tonumber(text) and math.max(1, math.floor(tonumber(text))) or nil
     end)
     K.Tooltip(self.lotsEdit, ns.T("postLots"), ns.T("postLotsTip"))
-    self.sizeHint = K.Label(panel, "", 12, -331, 240, "secondary"); self.sizeHint:SetHeight(12)
+    self.sizeHint = K.Label(panel, "", 12, -291, 240, "secondary"); self.sizeHint:SetHeight(12)
     self.hoursSegment = K.Segment(panel, {{key = 12, label = ns.T("postHours", 12)}, {key = 24, label = ns.T("postHours", 24)},
         {key = 48, label = ns.T("postHours", 48)}}, function(hours)
         self:Draft(self.props.id).hours = hours
         self:Render()
     end)
-    self.hoursSegment.frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -347)
+    self.hoursSegment.frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -307)
     K.Tooltip(self.hoursSegment.frame, ns.T("postHoursTitle"), ns.T("postHoursTip"))
     local label
-    label, self.buyout = K.ValueRow(panel, ns.T("postBuyout"), -374)
-    label, self.net = K.ValueRow(panel, ns.T("postNet"), -387)
-    label, self.profit = K.ValueRow(panel, ns.T("postProfit"), -400)
-    self.total = K.Label(panel, "", 12, -413, 240, "secondary"); self.total:SetHeight(12)
+    label, self.buyout = K.ValueRow(panel, ns.T("postBuyout"), -334, 106, 100)
+    label, self.net = K.ValueRow(panel, ns.T("postNet"), -347, 106, 100)
+    label, self.profit = K.ValueRow(panel, ns.T("postProfit"), -360, 106, 100)
+    self.total = K.Label(panel, "", 12, -373, 240, "secondary"); self.total:SetHeight(12)
     self.post = K.Button(panel, ns.T("postAction"), 120, function() self:Post() end, "main")
-    self.post:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -428)
+    self.post:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -388)
     K.Tooltip(self.post, ns.T("postAction"), ns.T("postActionTip"))
-    self.note = K.Label(panel, "", 12, -458, 200, "secondary"); self.note:SetHeight(12)
+    self.note = K.Label(panel, "", 12, -418, 200, "secondary"); self.note:SetHeight(12)
     self.help = K.Button(panel, ns.T("tradeInfo"), 24, function() end, "quiet")
-    self.help:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -12, 10)
+    self.help:SetPoint("TOPRIGHT", self.inspector.body, "TOPRIGHT", -12, -44)
     ns.Posting.onChange = function()
         if self.frame:IsVisible() then self:Render() end
     end

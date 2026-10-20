@@ -3,6 +3,7 @@ local UI = { page = 1, choices = {}, options = {}, rows = {} }
 ns.ShoppingUI = UI
 local LEFT = 236
 local PANEL = 272
+local BOTTOM = 42
 local function money(copper)
     return GetCoinTextureString(math.floor(copper))
 end
@@ -28,10 +29,12 @@ function UI:Render()
     if active then self.applyLimit:Disable() else self.applyLimit:Enable() end
     if active then self.limit:ClearFocus() end
     self.need:EnableMouse(not active and not S.priceLimit)
+    local optionCount = 0
     for i, b in ipairs(self.options) do
         local plan = S.options[i]
         b:SetWidth(right)
         if plan then
+            optionCount = i
             b:SetText(ns.T("buyOpt_" .. plan.kind, plan.units, money(plan.cost)))
             b:SetActive(S.plan ~= nil and S.plan.kind == plan.kind)
             if active then b:Disable() else b:Enable() end
@@ -47,7 +50,8 @@ function UI:Render()
     for _, offer in ipairs(S.offers) do
         if not seen[offer] and offer.count > 0 then shown[#shown + 1] = offer end
     end
-    local visibleOffers = K.ListCapacity(self.frame, 182, 70, 22, #self.rows)
+    local top = self:PlaceTable(optionCount)
+    local visibleOffers = K.ListCapacity(self.frame, top, BOTTOM, 22, #self.rows)
     local offerOffset = self.offerScroll:SetRange(#shown, visibleOffers)
     local inner = right - 22
     self.offerHead:SetWidth(inner)
@@ -68,7 +72,10 @@ function UI:Render()
                 cell:SetPoint("TOPLEFT", row.frame, "TOPLEFT", columns[key][1], -5)
                 cell:SetWidth(columns[key][2])
             end
-            row.cells.plan:SetText(ns.T("buyPlanRow", S.plan and ns.Plan.LotsOf(S.plan, offer) or 0, offer.count))
+            local picked = S.plan and ns.Plan.LotsOf(S.plan, offer) or 0
+            row.cells.plan:SetText(ns.T("buyPlanRow", picked, offer.count))
+            row.cells.plan:SetTextColor(unpack(K.theme[picked > 0 and "positive" or "text"]))
+            if picked > 0 then row.match:Show(); row.matchBar:Show() else row.match:Hide(); row.matchBar:Hide() end
             row.cells.stack:SetText(ns.T("buyStackRow", offer.stack))
             row.cells.unit:SetText(money(offer.buyout / offer.stack))
             row.cells.lot:SetText(money(offer.buyout))
@@ -99,19 +106,38 @@ function UI:Render()
     else self.go:SetText(ns.T("buyGoEmpty")) end
     self:RenderPanel()
 end
+function UI:PlaceTable(options)
+    local limitTop = 64 + options * 25
+    local top = limitTop + 43
+    if self.tableTop == top then return top end
+    self.tableTop = top
+    local frame = self.frame
+    self.limitLabel:ClearAllPoints()
+    self.limitLabel:SetPoint("TOPLEFT", frame, "TOPLEFT", LEFT + 10, -limitTop)
+    self.offerHead:ClearAllPoints()
+    self.offerHead:SetPoint("TOPLEFT", frame, "TOPLEFT", LEFT + 10, -(limitTop + 21))
+    self.offerScroll.frame:ClearAllPoints()
+    self.offerScroll.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", LEFT + 10, -top)
+    self.offerScroll.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8 - PANEL, BOTTOM)
+    for i, row in ipairs(self.rows) do
+        row.frame:ClearAllPoints()
+        row.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", LEFT + 10, -top - (i - 1) * 22)
+    end
+    return top
+end
 function UI:RenderPanel()
     local K, S = ns.TradeKit, ns.Shopping.state
     local id = S.itemID
     local stats = id and ns.Shopping.Stats(S.offers)
     if not id then
-        self.panelItem:Hide(); self.panelMarket:Hide()
+        self.inspector:Clear()
         for _, row in ipairs(self.stats) do row.key:Hide(); row.value:Hide() end
         self.panelNow:Hide(); self.panelHistory:Hide()
         self.panelEmpty:Show()
         return
     end
-    self.panelEmpty:Hide(); self.panelNow:Show(); self.panelHistory:Show(); self.panelMarket:Show()
-    K.SetItemChoice(self.panelItem, id, false)
+    self.panelEmpty:Hide(); self.panelNow:Show(); self.panelHistory:Show()
+    self.inspector:SetProps({id = id})
     local board = ns.Activity and ns.Activity.Board(id, 7)
     local quote = ns.Markets.Quote(id)
     local values = {
@@ -127,42 +153,23 @@ function UI:RenderPanel()
 end
 function UI:NewPanel(frame)
     local K = ns.TradeKit
-    local panel = ns.NewFrame("Frame", nil, frame)
-    panel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -34)
-    panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -6, 40)
-    panel:SetWidth(PANEL - 8)
-    K.Panel(panel)
+    self.inspector = K.Inspector:New(frame)
+    self.inspector:Place(-34, 40)
+    local panel = self.inspector.body
     self.panel = panel
-    self.panelItem = K.ItemChoice(panel, function()
-        local id = ns.Shopping.state.itemID
-        if id and ns.MarketWindow then ns.MarketWindow.Open(id) end
-    end)
-    self.panelItem:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -8)
-    self.panelItem:SetWidth(PANEL - 28); self.panelItem.text:SetWidth(PANEL - 60)
-    self.panelItem.extraTip = ns.T("itemHistoryOpenTip")
-    self.panelMarket = K.Button(panel, ns.T("inspectorMarket"), PANEL - 28, function()
-        local id = ns.Shopping.state.itemID
-        if id and ns.MarketWindow then ns.MarketWindow.Open(id) end
-    end)
-    self.panelMarket:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -36)
-    K.Tooltip(self.panelMarket, ns.T("inspectorMarket"), ns.T("inspectorMarketTip"))
-    self.panelNow = K.Label(panel, ns.T("buyPanelNow"), 12, -68, PANEL - 40, "heading")
+    self.panelNow = K.Label(panel, ns.T("buyPanelNow"), 12, -48, PANEL - 40, "heading")
     self.panelNow:SetHeight(14)
     K.Tooltip(panel, ns.T("buyPanelNow"), ns.T("buyPanelTip") .. "\n\n" .. ns.T("buyStatMarketTip"))
     self.stats = {}
     local keys = {"buyStatMin", "buyStatMarket", "buyStatMedian", "buyStatMean", "buyStatSupply", "buyStatWeek", "buyStatScan"}
     for i, key in ipairs(keys) do
-        local y = -88 - (i - 1) * 18 - (i >= 6 and 28 or 0)
-        local label = K.Label(panel, ns.T(key), 12, y, 110, "secondary")
-        label:SetHeight(12)
-        local value = K.Label(panel, "", 0, 0, PANEL - 130)
-        value:SetHeight(12); value:SetJustifyH("RIGHT")
-        value:ClearAllPoints(); value:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, y)
+        local y = -68 - (i - 1) * 18 - (i >= 6 and 28 or 0)
+        local label, value = K.ValueRow(panel, ns.T(key), y, 110, 124)
         self.stats[i] = {key = label, value = value}
     end
-    self.panelHistory = K.Label(panel, ns.T("buyPanelHistory"), 12, -88 - 5 * 18 - 8, PANEL - 40, "heading")
+    self.panelHistory = K.Label(panel, ns.T("buyPanelHistory"), 12, -68 - 5 * 18 - 8, PANEL - 40, "heading")
     self.panelHistory:SetHeight(14)
-    self.panelEmpty = K.Label(panel, ns.T("buyPanelEmpty"), 12, -12, PANEL - 40, "secondary")
+    self.panelEmpty = K.Label(panel, ns.T("buyPanelEmpty"), 12, -48, PANEL - 40, "secondary")
     self.panelEmpty:SetHeight(40); self.panelEmpty:SetJustifyV("TOP")
 end
 function UI.InsertLink(text)
@@ -275,7 +282,7 @@ function UI:NewPlan(frame)
     end
     self.offerScroll = K.Scroller:New(frame, function() self:Render() end, 22)
     self.offerScroll.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", LEFT + 10, -182)
-    self.offerScroll.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8 - PANEL, 70)
+    self.offerScroll.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8 - PANEL, BOTTOM)
     for i = 1, 40 do
         local row = {cells = {}}
         row.frame = ns.NewFrame("Frame", nil, frame)
@@ -284,6 +291,13 @@ function UI:NewPlan(frame)
         row.frame:SetHeight(22)
         row.stripe = K.Background(row.frame)
         row.stripe:SetVertexColor(unpack(K.theme.row))
+        row.match = K.Background(row.frame)
+        row.match:SetVertexColor(unpack(K.theme.match)); row.match:Hide()
+        row.matchBar = row.frame:CreateTexture(nil, "BORDER")
+        row.matchBar:SetPoint("TOPLEFT", row.frame, "TOPLEFT", 0, 0)
+        row.matchBar:SetPoint("BOTTOMLEFT", row.frame, "BOTTOMLEFT", 0, 0)
+        row.matchBar:SetWidth(4); row.matchBar:SetTexture(K.theme.white)
+        row.matchBar:SetVertexColor(unpack(K.theme.positive)); row.matchBar:Hide()
         for _, key in ipairs({"plan", "stack", "unit", "lot"}) do
             local cell = K.Label(row.frame, "", 0, -5, 100)
             cell:SetHeight(12)

@@ -1,6 +1,6 @@
 local _, ns = ...
 local UI = {props = {first = 1, target = 450, tool = 0, reserve = 0, choices = {}, known = {}, make = {}, open = {}},
-    rows = {}, expanded = nil, stepsOpen = {}, mode = "materials"}
+    rows = {}, groups = {}, collapsed = {}, expanded = nil, stepsOpen = {}, mode = "materials"}
 ns.LevelingUI = UI
 function UI:SetProps(props)
     for key, value in pairs(props) do self.props[key] = value end
@@ -37,7 +37,7 @@ function UI:Model()
         local lowerOptions = ns.Leveling.Options(p); lowerOptions.reserve = 0
         local lower = ns.Leveling.Route(lowerOptions)
         local route = p.reserve == 0 and lower or ns.Leveling.Route(p)
-        self.model = {route = route, lower = lower, basket = ns.Leveling.Basket(route)}
+        self.model = {route = route, lower = lower, basket = ns.Leveling.Basket(route), brackets = ns.Leveling.Brackets(route)}
     end
     return self.model
 end
@@ -54,6 +54,8 @@ function UI:Action(entry, button)
             if self.expanded then self.expanded = nil else self.expanded = "enchanting" end
             self.scroll.offset = 0; self:Render()
         end
+    elseif entry.kind == "bracket" then
+        self.collapsed[entry.key] = not self.collapsed[entry.key] or nil; self:Render()
     elseif entry.kind == "alternative" then
         p.choices[entry.stage] = entry.spell; self:SetProps({choices = p.choices})
     elseif entry.kind == "step" then
@@ -85,37 +87,42 @@ function UI:Entries(model)
             costText = not enabled and ns.T("tradeNoPrice") or nil}
         if enabled and self.expanded then
             if self.mode == "steps" then
-                for _, step in ipairs(model.route.steps) do
-                    out[#out + 1] = {kind = "step", spell = step.spell, stage = step.index, depth = 1,
-                        expandable = true, opened = self.stepsOpen[step.index], action = ns.T("levelVariants"),
-                        detail = ns.T("levelStep", step.first, step.target, step.gains),
-                        quantity = ns.T("levelCasts", step.count + step.extra), cost = step.missing == 0 and step.cost or nil,
-                        tip = ns.T(step.uncertain and "levelUncertain" or "levelOrange") .. "\n" .. ns.T("levelModelTip")}
-                    if self.stepsOpen[step.index] then
-                        out[#out + 1] = {kind = "auto", stage = step.index, depth = 2,
-                            label = ns.T("levelAutomatic"), action = ns.T("levelResetChoice"), costText = ""}
-                        for _, alt in ipairs(ns.Leveling.Alternatives(model.route, step)) do
-                            out[#out + 1] = {kind = "alternative", stage = step.index, spell = alt.spell, depth = 2,
-                                active = alt.spell == step.spell, action = ns.T("levelChoose"),
-                                detail = ns.T(alt.uncertain and "levelUncertain" or "levelOrange"),
-                                quantity = ns.T("levelCasts", alt.count + alt.extra), cost = alt.missing == 0 and alt.cost or nil,
-                                tip = ns.T("levelVariantTip")}
-                        end
-                        local acquisition = c.recipes[step.spell].acquisition
-                        if acquisition then
-                            out[#out + 1] = {kind = "learn", recipe = step.spell, id = acquisition.item, depth = 2,
-                                action = ns.T(p.known[step.spell] and "levelUnlearn" or "levelLearned"), costText = "",
-                                detail = ns.T(p.known[step.spell] and "levelAlreadyKnown" or "levelAcquireFormula"), tip = ns.T("levelFormulaTip")}
-                        end
-                        for _, tool in ipairs(step.tools) do
-                            out[#out + 1] = {id = tool.item, depth = 2, costText = "", quantity = "1",
-                                detail = ns.T(tool.gain and "levelToolGain" or "levelToolNoGain"), tip = ns.T("levelModelTip")}
-                            local formula = c.recipes[tool.spell].acquisition
-                            if formula then
-                                out[#out + 1] = {kind = "learn", recipe = tool.spell, id = formula.item, depth = 3,
-                                    action = ns.T(p.known[tool.spell] and "levelUnlearn" or "levelLearned"), costText = "",
-                                    detail = ns.T(p.known[tool.spell] and "levelAlreadyKnown" or "levelAcquireFormula"),
-                                    tip = ns.T("levelFormulaTip")}
+                for _, group in ipairs(model.brackets) do
+                    out[#out + 1] = {kind = "bracket", key = group.key, group = group}
+                    if not self.collapsed[group.key] then
+                        for _, step in ipairs(group.steps) do
+                            out[#out + 1] = {kind = "step", spell = step.spell, stage = step.index, depth = 1,
+                                expandable = true, opened = self.stepsOpen[step.index], action = ns.T("levelVariants"),
+                                detail = ns.T("levelStep", step.first, step.target, step.gains),
+                                quantity = ns.T("levelCasts", step.count + step.extra), cost = step.missing == 0 and step.cost or nil,
+                                tip = ns.T(step.uncertain and "levelUncertain" or "levelOrange") .. "\n" .. ns.T("levelModelTip")}
+                            if self.stepsOpen[step.index] then
+                                out[#out + 1] = {kind = "auto", stage = step.index, depth = 2,
+                                    label = ns.T("levelAutomatic"), action = ns.T("levelResetChoice"), costText = ""}
+                                for _, alt in ipairs(ns.Leveling.Alternatives(model.route, step)) do
+                                    out[#out + 1] = {kind = "alternative", stage = step.index, spell = alt.spell, depth = 2,
+                                        active = alt.spell == step.spell, action = ns.T("levelChoose"),
+                                        detail = ns.T(alt.uncertain and "levelUncertain" or "levelOrange"),
+                                        quantity = ns.T("levelCasts", alt.count + alt.extra), cost = alt.missing == 0 and alt.cost or nil,
+                                        tip = ns.T("levelVariantTip")}
+                                end
+                                local acquisition = c.recipes[step.spell].acquisition
+                                if acquisition then
+                                    out[#out + 1] = {kind = "learn", recipe = step.spell, id = acquisition.item, depth = 2,
+                                        action = ns.T(p.known[step.spell] and "levelUnlearn" or "levelLearned"), costText = "",
+                                        detail = ns.T(p.known[step.spell] and "levelAlreadyKnown" or "levelAcquireFormula"), tip = ns.T("levelFormulaTip")}
+                                end
+                                for _, tool in ipairs(step.tools) do
+                                    out[#out + 1] = {id = tool.item, depth = 2, costText = "", quantity = "1",
+                                        detail = ns.T(tool.gain and "levelToolGain" or "levelToolNoGain"), tip = ns.T("levelModelTip")}
+                                    local formula = c.recipes[tool.spell].acquisition
+                                    if formula then
+                                        out[#out + 1] = {kind = "learn", recipe = tool.spell, id = formula.item, depth = 3,
+                                            action = ns.T(p.known[tool.spell] and "levelUnlearn" or "levelLearned"), costText = "",
+                                            detail = ns.T(p.known[tool.spell] and "levelAlreadyKnown" or "levelAcquireFormula"),
+                                            tip = ns.T("levelFormulaTip")}
+                                    end
+                                end
                             end
                         end
                     end
@@ -157,18 +164,35 @@ function UI:Render()
     local K, p, model = ns.TradeKit, self.props, self:Model()
     self.first:SetText(tostring(p.first)); self.target:SetText(tostring(p.target)); self.reserve:SetText(tostring(p.reserve))
     self.owned:SetChecked(p.owned); self.tool.frame:SetText(ns.T("levelTool" .. p.tool))
-    self.steps:SetActive(self.mode == "steps"); self.materials:SetActive(self.mode == "materials")
-    self.summary:SetText(ns.T("levelSummary", K.Money(model.lower.missing == 0 and model.lower.cost or nil),
-        K.Money(model.basket.cost), K.Money(model.basket.cash), K.Money(model.basket.lotsCost)))
-    self.note:SetText(ns.T(model.route.unavailable and "levelUnavailable" or
-        (model.basket.missing > 0 and "levelIncomplete" or (model.basket.stale > 0 and "levelStale"
-            or (not model.route.comparison and "levelComparison" or "levelModelNote")))))
+    self.modes:Select(self.mode)
+    local values = {model.lower.missing == 0 and model.lower.cost or nil, model.basket.cost, model.basket.cash, model.basket.lotsCost}
+    local width = math.floor(((self.frame:GetWidth() or 996) - 38) / 4)
+    for i, tile in ipairs(self.tiles) do
+        tile.frame:ClearAllPoints(); tile.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10 + (i - 1) * (width + 6), -66)
+        tile:SetProps({title = ns.T("levelTile" .. i), value = K.Money(values[i]), width = width, tip = ns.T("levelModelTip")})
+    end
+    self.statusText = model.route.unavailable and ns.T("levelUnavailable") or model.basket.missing > 0 and ns.T("levelIncomplete")
+        or model.basket.stale > 0 and ns.T("levelStale") or not model.route.comparison and ns.T("levelComparison") or ""
+    ns.Trader.RenderStatus()
     local entries = self:Entries(model)
-    local visible = K.ListCapacity(self.frame, 148, 46, 38, #self.rows)
+    local visible = K.ListCapacity(self.frame, 132, 46, 38, #self.rows)
     local offset = self.scroll:SetRange(#entries, visible)
+    for _, group in ipairs(self.groups) do group.frame:Hide() end
+    local used = 0
     for i, row in ipairs(self.rows) do
         local entry = i <= visible and entries[offset + i]
-        if entry then entry.width = (self.frame:GetWidth() or 996) - 36; row:SetProps(entry) else row.frame:Hide() end
+        local y = -132 - (i - 1) * 38
+        if entry and entry.kind == "bracket" then
+            row.frame:Hide(); used = used + 1
+            local view, group = self.groups[used], entry.group
+            view.frame:ClearAllPoints(); view.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, y)
+            view:SetProps({key = group.key, width = (self.frame:GetWidth() or 996) - 36, height = 38,
+                open = not self.collapsed[group.key], name = ns.T("levelRank" .. group.key, group.first, group.target),
+                detail = ns.T("levelBracketCosts", K.Money(group.cost), K.Money(group.cash)), tip = ns.T("levelModelTip")})
+        elseif entry then
+            row.frame:ClearAllPoints(); row.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, y)
+            entry.width = (self.frame:GetWidth() or 996) - 36; row:SetProps(entry)
+        else row.frame:Hide() end
     end
     self:Controls()
 end
@@ -199,10 +223,9 @@ function UI:New(parent)
     self.scan.tipFn = function() return ns.T("levelScanTip") .. "\n\n" .. ns.Batch.PreviewText(ns.Leveling.Targets(self.props, false), true) end
     self.all.tipFn = function() return ns.T("levelScanAllTip") .. "\n\n" .. ns.Batch.PreviewText(ns.Leveling.Targets(self.props, true), true) end
     K.Tooltip(self.scan, ns.T("levelScanRoute"), ""); K.Tooltip(self.all, ns.T("levelScanProfession"), "")
-    self.steps = K.Button(f, ns.T("levelSteps"), 90, function() self.mode = "steps"; self.scroll.offset = 0; self:Render() end, "quiet")
-    self.steps:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -34)
-    self.materials = K.Button(f, ns.T("levelMaterials"), 100, function() self.mode = "materials"; self.scroll.offset = 0; self:Render() end, "quiet")
-    self.materials:SetPoint("LEFT", self.steps, "RIGHT", 6, 0)
+    self.modes = K.Segment(f, {{key = "steps", label = ns.T("levelSteps")}, {key = "materials", label = ns.T("levelMaterials")}},
+        function(mode) self.mode = mode; self.scroll.offset = 0; self:Render() end)
+    self.modes.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -34)
     K.Label(f, ns.T("levelReserve"), 220, -40, 50)
     self.reserve = K.Edit(f, 32); self.reserve:SetPoint("TOPLEFT", f, "TOPLEFT", 273, -34)
     self.reserve:SetMaxLetters(2); self.reserve:SetNumeric(true); K.LiveEdit(self.reserve, read)
@@ -215,19 +238,21 @@ function UI:New(parent)
     self.tool = K.Menu(f, tools, function(tier) self:SetProps({tool = tier}) end)
     self.tool.frame:SetWidth(190); self.tool.frame:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -34)
     K.Tooltip(self.tool.frame, ns.T("levelToolTitle"), ns.T("levelToolTip"))
-    self.summary = K.Label(f, "", 10, -66, 700, "heading"); self.summary:SetHeight(40); self.summary:SetJustifyV("TOP")
-    self.summary:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -66)
-    self.note = K.Label(f, "", 10, -110, 700); self.note:SetHeight(28); self.note:SetJustifyV("TOP")
-    self.note:SetPoint("TOPRIGHT", f, "TOPRIGHT", -46, -110)
+    self.tiles = {}
+    for i = 1, 4 do self.tiles[i] = K.StatTile:New(f) end
     self.help = K.Button(f, ns.T("tradeInfo"), 24, function() end, "quiet")
-    self.help:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -108)
+    self.help:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -124)
     K.Tooltip(self.help, ns.T("levelTitle"), ns.T("levelModelTip"))
-    K.TableHeader(f, -140)
-    self.scroll = K.TableScroll(f, function() self:Render() end, 148, 46, 38)
+    K.TableHeader(f, -124)
+    self.scroll = K.TableScroll(f, function() self:Render() end, 132, 46, 38)
     for i = 1, 40 do
         local row = K.LevelingRow:New(f, function(entry, button) self:Action(entry, button) end, function(entry) self:Expand(entry) end)
-        row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -148 - (i - 1) * 38)
+        row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -132 - (i - 1) * 38)
         self.rows[i] = row; self.scroll:Wheel(row.frame)
+    end
+    for i = 1, 6 do
+        local group = K.GroupRow:New(f, function(key) self:Action({kind = "bracket", key = key}) end)
+        group.frame:Hide(); self.scroll:Wheel(group.frame); self.groups[i] = group
     end
     f:SetScript("OnSizeChanged", function() self:Render() end)
     self:Render()

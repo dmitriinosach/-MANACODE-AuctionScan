@@ -3,6 +3,7 @@ local L = ns.locales.ruRU
 L.navProcessing = "Переработка"
 L.navMaterials = "Материалы"
 L.navBelowMarket = "Ниже рынка"
+L.navSeasonal = "Сезонные"
 L.procDisenchant = "Распыл"
 L.procProspect = "Просеивание"
 L.procMill = "Измельчение"

@@ -45,7 +45,7 @@ function R.Complete(id, force)
     for _, use in ipairs(R.Uses(id, 0.05)) do
         for _, target in ipairs(ns.Crafting.Targets(use.recipe)) do ids[#ids + 1] = target end
     end
-    return ns.Batch.Complete(ids, force)
+    return ns.Batch.Complete(ids, force, true)
 end
 function R.Packs(id, fee)
     local result, quote = {}, ns.Markets.Quote(id)

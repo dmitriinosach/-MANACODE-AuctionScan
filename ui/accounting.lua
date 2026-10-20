@@ -387,7 +387,8 @@ function UI:Render()
     if not hint and p.unknownSales > 0 then hint = ns.T("acUnknownSales", p.unknownSales) end
     if not hint and p.stages.unsure > 0 then hint = ns.T("acUnsureHint", p.stages.unsure) end
     self.status:SetWidth(width - 20)
-    self.status:SetText(hint or ns.T("acHint"))
+    self.status:SetText(hint or "")
+    ns.TradeKit.Tooltip(self.views.frame, ns.T("acTitle"), ns.T("acHint"))
     if hint and hint == self.message then self.status:SetTextColor(unpack(K.theme.negative))
     else self.status:SetTextColor(unpack(K.theme.secondary)) end
 end
@@ -409,6 +410,9 @@ function UI:New(parent)
     view.add:SetHeight(22)
     view.add:SetPoint("RIGHT", view.fee.frame, "LEFT", -8, 0)
     K.Tooltip(view.add, ns.T("acAddPurchase"), ns.T("acAddPurchaseTip"))
+    ns.CollectUI.Attach(f, 130, function(b)
+        b:SetPoint("RIGHT", view.add, "LEFT", -8, 0); view.disenchant = b
+    end)
     for index = 1, 4 do view.tiles[index] = K.StatTile:New(f) end
     local modes = {}
     for _, mode in ipairs({"items", "materials", "journal", "analysis"}) do modes[#modes + 1] = {key = mode, label = ns.T("acTab_" .. mode)} end
@@ -474,4 +478,5 @@ end
 ns.Accounting.onChange = function()
     for _, view in ipairs(UI.all) do if view.frame:IsVisible() then view:Render() end end
     if ns.MarketBoardUI then ns.MarketBoardUI.Refresh() end
+    if ns.CollectUI then ns.CollectUI.Refresh() end
 end

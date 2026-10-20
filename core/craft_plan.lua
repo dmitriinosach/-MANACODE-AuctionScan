@@ -9,6 +9,12 @@ function P.Build(recipe, options)
     local stock, path, rows = {}, {[recipe.raw] = true}, {}
     local quantity = math.max(1, math.min(100000, math.floor(options.quantity or recipe.count)))
     local crafts = math.ceil(quantity / recipe.count)
+    local function loops(child)
+        for _, input in ipairs(child.inputs) do
+            if path[input[1]] then return true end
+        end
+        return false
+    end
     local function material(id, quantity, depth)
         local quote = ns.Crafting.Quote(id)
         local price = quote and quote.miss == 0 and quote.complete ~= false
@@ -16,7 +22,7 @@ function P.Build(recipe, options)
         local child = ns.Crafting.byItem[id]
         local make = options.make and options.make[id]
         if make == nil then make = options.craftAll end
-        local expandable = child and not path[id] and depth < 8
+        local expandable = child and not path[id] and not loops(child) and depth < 8
         local node = {id = id, count = quantity, depth = depth, quote = quote, expandable = expandable,
             crafted = make and expandable or false, own = 0, need = quantity, children = {}}
         rows[#rows + 1] = node

@@ -1,5 +1,5 @@
 local _, ns = ...
-local UI = { props = { selected = 1, page = 1, fee = 0.05 }, rows = {}, nav = {} }
+local UI = { props = { selected = 1, page = 1 }, rows = {}, nav = {} }
 UI.professionModes = {}
 UI.processKind = "disenchant"
 ns.Trader = UI
@@ -23,7 +23,7 @@ function UI.Ready()
         and ns.Reagents and ns.ReagentsUI and ns.Resale and ns.ResaleUI and ns.CraftPlan and ns.AuctionWindow
         and ns.Activity and ns.Disenchant and ns.DisenchantUI and ns.MarketBoardUI
         and ns.Collections and ns.CollectionsUI and ns.Hidden and ns.HiddenUI and ns.Recipes
-        and ns.seasonalEvents and ns.OfferPreview and ns.Leveling and ns.LevelingUI
+        and ns.seasonalEvents and ns.Seasonal and ns.SeasonalUI and ns.OfferPreview and ns.Leveling and ns.LevelingUI
         and ns.levelingCatalogs and ns.levelingCatalogs.enchanting
         and ns.Accounting and ns.AccountingEvents and ns.AccountingUI
         and ns.Recycle and ns.RecycleUI and ns.recyclePairs then return true end
@@ -49,6 +49,7 @@ function UI.Status(text)
         if UI.ViewActive("disenchant") then ns.DisenchantUI:Render() else ns.DisenchantUI:Controls() end
     end
     if ns.CollectionsUI and ns.CollectionsUI.frame and UI.section == "collections" then ns.CollectionsUI:Render() end
+    if ns.SeasonalUI and ns.SeasonalUI.frame and UI.section == "seasonal" then ns.SeasonalUI:Render() end
     if ns.LevelingUI and ns.LevelingUI.frame then
         if UI.ViewActive("leveling") then ns.LevelingUI:Render() else ns.LevelingUI:Controls() end
     end
@@ -74,6 +75,11 @@ function UI.ResumeScan()
     if ns.Scan.state.phase == "paused" then ns.Scan.Start("pages") end
     UI.Refresh()
 end
+function UI.ContextText()
+    local views = {prospect = ns.ProspectUI, mill = ns.ProspectUI, disenchant = ns.DisenchantUI,
+        leveling = ns.LevelingUI, hidden = ns.HiddenUI, bargain = ns.BargainUI}
+    for key, view in pairs(views) do if view.frame and UI.ViewActive(key) then return view.statusText end end
+end
 function UI.ActivityText()
     local K, state = ns.TradeKit, ns.Scan.state
     if ns.Buy.Active() then
@@ -81,7 +87,13 @@ function UI.ActivityText()
         return ns.T("deBuyStage", R.page + 1, R.pages > 0 and tostring(R.pages) or "?", ns.Buy.Left(),
             R.bought, K.Money(R.spent))
     end
-    if state.phase == "idle" then return UI.lastStatus or ns.T("tradeReadyShort") end
+    if state.phase == "idle" then
+        local parts = {}
+        local context = UI.ContextText()
+        if context and context ~= "" then parts[#parts + 1] = context end
+        if UI.lastStatus then parts[#parts + 1] = UI.lastStatus end
+        return table.concat(parts, " | ")
+    end
     local text
     local D, view = ns.Disenchant, ns.DisenchantUI
     if D and view and view.frame and D.Progress(view.group) then text = view:ProgressText() end
@@ -93,10 +105,28 @@ function UI.ActivityText()
     end
     return text or UI.lastStatus or ns.T("deOtherScan")
 end
+function UI.ActivityShare()
+    if ns.Buy.Active() then
+        local R = ns.Buy.state
+        return R.pages > 0 and math.min(1, R.page / R.pages) or nil
+    end
+    local S, job = ns.Scan.state, ns.Batch.job
+    if S.mode == "all" and S.phase ~= "idle" then
+        return S.count > 0 and S.phase ~= "wait" and math.min(1, S.index / S.count) or nil
+    end
+    local page = S.phase ~= "idle" and S.pages > 0 and math.min(1, S.page / S.pages) or nil
+    if job and #job.items > 1 then return math.min(1, (job.index - 1 + (page or 0)) / #job.items) end
+    local classes = S.phase ~= "idle" and S.scan and S.scan.deClasses
+    if classes and #classes > 1 and page then return math.min(1, ((S.scan.deRoute or 1) - 1 + page) / #classes) end
+    return page
+end
 function UI.RenderStatus()
     if not UI.footerStatus then return end
     UI.footerStatus:SetText(UI.ActivityText())
-    if UI.Busy() then UI.footerStop:Show() else UI.footerStop:Hide() end
+    local busy = UI.Busy()
+    local waiting = ns.Scan.state.phase == "paused" or ns.Buy.state.phase == "ready"
+    UI.footerProgress:Set(busy and UI.ActivityShare() or nil, busy and not waiting, busy)
+    if busy then UI.footerStop:Show() else UI.footerStop:Hide() end
     if ns.Scan.state.phase == "paused" then UI.footerResume:Show() else UI.footerResume:Hide() end
 end
 function UI.ViewActive(view)
@@ -131,7 +161,7 @@ function UI:ShowSection(section)
     self.section = section
     for _, view in ipairs({self.jewelry, self.alchemy, self.reagents, self.resale, self.disenchant, self.recycle,
         self.collections, self.hiddenView, self.leveling, self.accounting, self.buyView.frame,
-        self.processing, self.professionView, self.bargain}) do
+        self.processing, self.professionView, self.bargain, self.seasonal}) do
         view:Hide()
     end
     if self.prospect then self.prospect:Hide() end
@@ -139,6 +169,7 @@ function UI:ShowSection(section)
     if section == "buy" then self.buyView.frame:Show()
     elseif section == "processing" then self:ShowProcessKind()
     elseif section == "bargain" then self.bargain:Show()
+    elseif section == "seasonal" then self:ShowSeasonEvent()
     elseif section == "reagents" then self.reagents:Show()
     elseif section == "collections" then self.collections:Show()
     elseif section == "hidden" then self.hiddenView:Show()
@@ -175,6 +206,17 @@ function UI.OpenProcessing(kind)
     UI.processKind = kind
     UI:ShowSection("processing")
 end
+function UI:ShowSeasonEvent()
+    local key = ns.SeasonalUI.props.event
+    self.seasonal:Show()
+    ns.SeasonalUI:SetProps({event = key})
+    self.seasonSegment:Select(key)
+end
+function UI.OpenSeasonal(key)
+    local event = ns.Seasonal.Event(key)
+    if event and #event.items > 0 then ns.SeasonalUI.props.event = key end
+    UI:ShowSection("seasonal")
+end
 function UI:ShowProfession(profession)
     local mode = self.professionModes[profession] or "craft"
     if mode == "leveling" and not ns.levelingCatalogs[profession] then mode = "craft" end
@@ -199,24 +241,20 @@ function UI.SetProfessionMode(profession, mode)
     if mode == "leveling" and not ns.levelingCatalogs[profession] then return end
     UI.professionModes[profession] = mode
     UI:ShowSection(profession)
-    if mode == "craft" and ns.craftCatalogs[profession] then ns.AlchemyUI:SetProps({view = "list"}) end
 end
 function UI.OpenProfession(profession)
     UI:ShowSection(profession)
-    if (UI.professionModes[profession] or "craft") == "craft" and ns.craftCatalogs[profession] then
-        ns.AlchemyUI:SetProps({view = "list"})
-    end
 end
-function UI.OpenRecipe(profession, id, fee)
+function UI.OpenRecipe(profession, id)
     local catalog = ns.craftCatalogs[profession]
     if not catalog or not catalog.byItem[id] then return end
     UI.professionModes[profession] = "craft"
     UI:ShowSection(profession)
-    ns.AlchemyUI:SetProps({recipe = id, id = id, fee = fee})
+    ns.AlchemyUI:SetProps({recipe = id, id = id, reveal = true})
 end
-function UI.OpenReagent(id, fee)
+function UI.OpenReagent(id)
     UI:ShowSection("reagents")
-    ns.ReagentsUI:SetProps({id = id, fee = fee})
+    ns.ReagentsUI:SetProps({id = id})
 end
 function UI.OpenBuy(id, need)
     if ns.vendorPrices and ns.vendorPrices[id] then ns.say(ns.T("cacheVendor")); return end
@@ -241,6 +279,7 @@ function UI:Render()
     if ns.ResaleUI then ns.ResaleUI:Render() end
     if ns.DisenchantUI then ns.DisenchantUI:Render() end
     if ns.CollectionsUI then ns.CollectionsUI:Render() end
+    if ns.SeasonalUI and ns.SeasonalUI.frame then ns.SeasonalUI:Render() end
     if ns.HiddenUI then ns.HiddenUI:Render() end
     if ns.LevelingUI then ns.LevelingUI:Render() end
     if ns.RecycleUI then ns.RecycleUI:Render() end
@@ -265,13 +304,14 @@ end
 function UI:BuildChrome(parent, root)
     local chrome = ns.TradeKit.AuctionChrome(parent, root)
     self.title, self.money, self.footerStatus = chrome.title, chrome.money, chrome.status
-    self.footerStop, self.footerResume = chrome.stop, chrome.resume
+    self.footerStop, self.footerResume, self.footerProgress = chrome.stop, chrome.resume, chrome.progress
     chrome.stop.onClick = UI.StopAll
     chrome.resume.onClick = UI.ResumeScan
     ns.TradeKit.Tooltip(chrome.stop, ns.T("tradeStop"), ns.T("statusStopTip"))
     ns.TradeKit.Tooltip(chrome.resume, ns.T("tradeResume"), ns.T("statusResumeTip"))
     root:SetScript("OnUpdate", function(_, elapsed)
         UI.statusTick = (UI.statusTick or 0) + elapsed
+        UI.footerProgress:Tick(elapsed)
         if UI.statusTick >= 0.25 then UI.statusTick = 0; UI.RenderStatus() end
     end)
     self.background = rawget(root, "tradeBase")
@@ -317,6 +357,23 @@ function UI:BuildProcessing(content)
         end
     end
 end
+function UI:BuildSeasonal(content)
+    local K = ns.TradeKit
+    self.seasonal = self:Container(content)
+    local entries = {}
+    for _, event in ipairs(ns.seasonalEvents) do entries[#entries + 1] = {key = event.key, label = ns.T(event.shortKey)} end
+    local body
+    self.seasonSegment, body = self:SegmentBar(self.seasonal, entries, UI.OpenSeasonal)
+    ns.SeasonalUI:New(body)
+    for _, event in ipairs(ns.seasonalEvents) do
+        local button = self.seasonSegment.buttons[event.key]
+        if #event.items > 0 then K.Tooltip(button, ns.T(event.labelKey), ns.T(event.timingKey))
+        else
+            button:Disable()
+            K.DisabledTip(button, ns.T(event.labelKey), ns.T(event.timingKey) .. "\n\n" .. ns.T("seasonNoAuctionItems"))
+        end
+    end
+end
 function UI:BuildProfessions(content)
     local K = ns.TradeKit
     self.professionView = self:Container(content)
@@ -339,9 +396,11 @@ function UI:New(parent)
     local root = ns.NewFrame("Frame", nil, parent)
     self.frame = root
     self:BuildChrome(parent, root)
-    self.marketsLabel = K.Label(root, ns.T("tradeMarkets"), 14, -41, 60)
+    self.marketsLabel = K.Label(root, ns.T("tradeMarkets"), 14, -33, 60)
+    self.marketsLabel:SetFontObject(K.Font("ManaCodeNavTitleFont", "GameFontNormal", 14))
+    self.marketsLabel:SetHeight(26); self.marketsLabel:SetJustifyV("MIDDLE")
     self.marketsLabel:SetWidth(math.ceil((self.marketsLabel:GetStringWidth() or 40) + 2))
-    self.marketsLabel:SetTextColor(unpack(K.theme.off))
+    self.marketsLabel:SetTextColor(unpack(K.theme.secondary))
     local processingTab = self:NavButton(root, ns.T("navProcessing"), "processing")
     processingTab:SetPoint("LEFT", self.marketsLabel, "RIGHT", 4, 0)
     local professions = {{key = "jewelry", labelKey = "jewelrySection"}}
@@ -350,14 +409,17 @@ function UI:New(parent)
     end
     self.professionMenu = K.Menu(root, professions, UI.OpenProfession)
     K.MakeNav(self.professionMenu.frame)
+    K.HoverMenu(self.professionMenu)
     self.professionMenu.frame:SetWidth(150)
     self.professionMenu.frame:SetPoint("LEFT", processingTab, "RIGHT", 2, 0)
     local materialsTab = self:NavButton(root, ns.T("navMaterials"), "reagents")
     materialsTab:SetPoint("LEFT", self.professionMenu.frame, "RIGHT", 2, 0)
     local bargainTab = self:NavButton(root, ns.T("navBelowMarket"), "bargain")
     bargainTab:SetPoint("LEFT", materialsTab, "RIGHT", 2, 0)
+    local seasonalTab = self:NavButton(root, ns.T("navSeasonal"), "seasonal")
+    seasonalTab:SetPoint("LEFT", bargainTab, "RIGHT", 2, 0)
     local purchase = self:NavButton(root, ns.T("buySection"), "buy")
-    purchase:SetPoint("LEFT", bargainTab, "RIGHT", 2, 0)
+    purchase:SetPoint("LEFT", seasonalTab, "RIGHT", 2, 0)
     K.NavDivider(root, purchase)
     self:NavButton(root, ns.T("collectionTitle"), "collections"):SetPoint("LEFT", purchase, "RIGHT", 17, 0)
     self:NavButton(root, ns.T("hiddenSection"), "hidden"):SetPoint("LEFT", self.nav.collections, "RIGHT", 2, 0)
@@ -380,6 +442,7 @@ function UI:New(parent)
     self:BuildProfessions(content)
     self.reagents = ns.ReagentsUI:New(content).frame
     self.collections = ns.CollectionsUI:New(content).frame
+    self:BuildSeasonal(content)
     self.hiddenView = ns.HiddenUI:New(content).frame
     self.bargain = self:Container(content)
     if ns.BargainUI then ns.BargainUI:New(self.bargain)

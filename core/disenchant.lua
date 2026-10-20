@@ -334,7 +334,8 @@ function D.Rows(key, fee, selling, minItemLevel, minPercent, maxItemLevel, inclu
             and (includeNoLevel ~= false or meta.required ~= 0)
             and not (excludedBands and excludedBands[meta.band])
             and lot.count > 0 and lot.buyout > 0 and lot.owner ~= "" and lot.owner ~= UnitName("player")
-        if eligible and minPercent ~= nil then
+        local deal = eligible and ns.Bargain.Vendor(lot.item, lot.count, lot.buyout, nil) or nil
+        if eligible and minPercent ~= nil and not deal then
             local estimate = D.Estimate(D.Band(meta.band), lot.buyout / lot.count, fee, nil, selling)
             eligible = estimate.percent ~= nil and estimate.percent >= minPercent - 0.000001
         end
@@ -342,6 +343,12 @@ function D.Rows(key, fee, selling, minItemLevel, minPercent, maxItemLevel, inclu
             local row = entries[lot.item] or {id = lot.item, units = 0, lots = 0, meta = meta}
             row.cost = math.min(row.cost or math.huge, lot.buyout / lot.count)
             row.units, row.lots = row.units + lot.count, row.lots + 1
+            if deal then
+                local vendor = row.vendor or {unit = deal.unit, lots = 0, units = 0, profit = 0, best = 0}
+                vendor.lots, vendor.units = vendor.lots + 1, vendor.units + lot.count
+                vendor.profit, vendor.best = vendor.profit + deal.buyout, math.max(vendor.best, deal.buyout)
+                row.vendor = vendor
+            end
             entries[lot.item] = row
         end
     end

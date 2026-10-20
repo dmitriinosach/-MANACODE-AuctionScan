@@ -71,3 +71,21 @@ function S.Merge(id, points, days, volume)
     table.sort(result, function(a, b) return a.at < b.at end)
     return result
 end
+local neutralAuctionZones = {
+    ["Booty Bay"] = true, ["Gadgetzan"] = true, ["Everlook"] = true,
+}
+function ns.Fee()
+    return ns.Store.DB().auctionFee == 0.15 and 0.15 or 0.05
+end
+local feeEvents = ns.NewFrame("Frame")
+ns.Listen(feeEvents, "AUCTION_HOUSE_SHOW")
+feeEvents:SetScript("OnEvent", function()
+    local zone = GetRealZoneText and GetRealZoneText()
+    local subzone = GetSubZoneText and GetSubZoneText()
+    local neutral = neutralAuctionZones[zone] or neutralAuctionZones[subzone]
+    for _, key in ipairs({"neutralBootyBay", "neutralGadgetzan", "neutralEverlook"}) do
+        neutral = neutral or zone == ns.T(key) or subzone == ns.T(key)
+    end
+    ns.Store.DB().auctionFee = neutral and 0.15 or 0.05
+    if ns.Trader then ns.Trader.Refresh() end
+end)

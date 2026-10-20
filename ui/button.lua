@@ -2,8 +2,6 @@ local ADDON, ns = ...
 local UI = {}
 ns.UI = UI
 local built = false
-function UI.SetEmbedded(active)
-end
 local function build()
     if built or not AuctionFrame then return end
     built = true
