@@ -75,6 +75,8 @@ function C.Step()
     target.bag, target.at = ns.AccountingEvents.BagCount(target.itemID, target.suffix), GetTime()
     if not target.bag then C.Finish("collectTimeout"); return end
     C.pending = target
+    local wasRead = select(9, GetInboxHeaderInfo(target.index))
+    if not wasRead and GetInboxText then GetInboxText(target.index) end
     TakeInboxItem(target.index, target.attach)
 end
 local stops

@@ -4,7 +4,7 @@
 ## Notes: Full auction house scan saved for outside analysis.
 ## Notes-ruRU: Полный скан аукциона для анализа вне игры
 ## Author: Manacode
-## Version: 0.8.0
+## Version: 0.9.0
 ## SavedVariables: AuctionScanDB
 
 compat\wotlk.lua
@@ -38,6 +38,7 @@ data\disenchanting.lua
 data\seasonal.lua
 data\shared.lua
 data\leveling_enchanting.lua
+data\leveling_alchemy.lua
 data\recycling.lua
 data\prospecting.lua
 data\milling.lua

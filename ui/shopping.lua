@@ -14,12 +14,26 @@ function UI:Render()
     local active = ns.Buy.Active()
     local width = self.frame:GetWidth() or 996
     local right = math.max(300, width - LEFT - 20 - PANEL)
+    local entries = self:ChoiceEntries()
+    self.resultsLabel:SetText(ns.T((#S.items == 0 and entries[1]) and "buyRecent" or "buyResults"))
     local visibleChoices = K.ListCapacity(self.frame, 54, 36, 28, #self.choices)
-    local choiceOffset = self.choiceScroll:SetRange(#S.items, visibleChoices)
+    local choiceOffset = self.choiceScroll:SetRange(#entries, visibleChoices)
+    self.rowEntries = {}
     for i, b in ipairs(self.choices) do
-        local item = i <= visibleChoices and S.items[choiceOffset + i]
-        b:SetWidth(LEFT - 18); b.text:SetWidth(LEFT - 52)
-        if item then K.SetItemChoice(b, item.id, item.id == S.itemID) else b:Hide() end
+        local entry = i <= visibleChoices and entries[choiceOffset + i]
+        self.rowEntries[i] = entry or nil
+        b:SetWidth(LEFT - 18)
+        b.head:Hide(); b.need:SetText(""); b.extraTip = nil
+        if not entry then b:Hide()
+        elseif entry.kind == "head" then b:Hide(); b.head:Show()
+        else
+            b.text:SetWidth(LEFT - 52 - (entry.kind == "recent" and 54 or 0))
+            K.SetItemChoice(b, entry.id, entry.kind == "item" and entry.id == S.itemID)
+            if entry.kind == "recent" then
+                b.need:SetText(ns.T("buyHistoryNeed", entry.need))
+                b.extraTip = ns.T("buyHistoryTip", entry.need)
+            end
+        end
     end
     self.heading:SetText(S.name or ns.T("buyNoSelection"))
     self.need:SetMaxLetters(S.priceLimit and 8 or 4)
@@ -55,8 +69,7 @@ function UI:Render()
     local offerOffset = self.offerScroll:SetRange(#shown, visibleOffers)
     local inner = right - 22
     self.offerHead:SetWidth(inner)
-    local columns = {plan = {30, 90}, stack = {120, 80}, unit = {math.max(200, inner - 240), 110},
-        lot = {math.max(310, inner - 130), 110}}
+    local columns = {plan = {38, 90}, stack = {130, 80}, unit = {inner - 264, 110}, lot = {inner - 144, 110}}
     for key, label in pairs(self.columns) do
         label:ClearAllPoints()
         label:SetPoint("TOPLEFT", self.offerHead, "TOPLEFT", columns[key][1], -4)
@@ -124,6 +137,31 @@ function UI:PlaceTable(options)
         row.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", LEFT + 10, -top - (i - 1) * 22)
     end
     return top
+end
+function UI:ChoiceEntries()
+    local S = ns.Shopping.state
+    local entries, found = {}, {}
+    for _, item in ipairs(S.items) do
+        entries[#entries + 1] = {kind = "item", id = item.id}
+        found[item.id] = true
+    end
+    local recent = {}
+    for _, entry in ipairs(ns.Shopping.History()) do
+        if not found[entry.id] then recent[#recent + 1] = {kind = "recent", id = entry.id, need = entry.need or 1} end
+    end
+    if #recent > 0 and #entries > 0 then entries[#entries + 1] = {kind = "head"} end
+    for _, entry in ipairs(recent) do entries[#entries + 1] = entry end
+    return entries
+end
+function UI:PickChoice(i, button)
+    local entry = self.rowEntries and self.rowEntries[i]
+    if not entry then return end
+    if entry.kind == "item" then return ns.Shopping.Select(entry.id) end
+    if entry.kind ~= "recent" then return end
+    if button == "RightButton" then return ns.Shopping.Forget(entry.id) end
+    self.query:SetText(ns.Markets.Name(entry.id)); self.query:ClearFocus()
+    self.choiceScroll.offset, self.offerScroll.offset = 0, 0
+    ns.Shopping.Repeat(entry.id)
 end
 function UI:RenderPanel()
     local K, S = ns.TradeKit, ns.Shopping.state
@@ -206,23 +244,27 @@ function UI:NewSearch(frame)
     K.Tooltip(self.query, ns.T("buyQueryLabel"), ns.T("buySuggestTip"))
     self.search = K.Button(frame, ns.T("buySearch"), 80, search)
     self.search:SetPoint("LEFT", self.query, "RIGHT", 6, 0)
-    local needLabel = K.Label(frame, ns.T("buyCapNeed"), 0, 0, 86, "secondary")
-    needLabel:SetHeight(12); needLabel:ClearAllPoints()
-    needLabel:SetPoint("LEFT", self.search, "RIGHT", 18, 0)
-    local minus = K.Button(frame, "-", 22, function() ns.Shopping.SetNeed(ns.Shopping.state.need - (IsShiftKeyDown() and 10 or 1)) end, "quiet")
-    minus:SetPoint("LEFT", needLabel, "RIGHT", 4, 0)
+end
+function UI:NewNeed(frame)
+    local K = ns.TradeKit
+    local reset = K.Button(frame, ns.T("buyReset"), 64, function() ns.Shopping.Reset() end, "quiet")
+    reset:SetPoint("RIGHT", self.go, "LEFT", -16, 0)
+    local plus = K.Button(frame, "+", 22, function() ns.Shopping.SetNeed(ns.Shopping.state.need + (IsShiftKeyDown() and 10 or 1)) end, "quiet")
+    plus:SetPoint("RIGHT", reset, "LEFT", -10, 0)
     self.need = K.Edit(frame, 48)
-    self.need:SetPoint("LEFT", minus, "RIGHT", 4, 0)
+    self.need:SetPoint("RIGHT", plus, "LEFT", -4, 0)
     self.need:SetNumeric(true)
     self.need:SetMaxLetters(4)
     self.need:SetScript("OnTextChanged", function(edit, user)
         if user then self.pendingNeed, self.pendingAt = tonumber(edit:GetText()) or 1, GetTime() + 0.3 end
     end)
     self.need:SetScript("OnEnterPressed", function(edit) edit:ClearFocus() end)
-    local plus = K.Button(frame, "+", 22, function() ns.Shopping.SetNeed(ns.Shopping.state.need + (IsShiftKeyDown() and 10 or 1)) end, "quiet")
-    plus:SetPoint("LEFT", self.need, "RIGHT", 4, 0)
-    local reset = K.Button(frame, ns.T("buyReset"), 64, function() ns.Shopping.Reset() end, "quiet")
-    reset:SetPoint("LEFT", plus, "RIGHT", 10, 0)
+    local minus = K.Button(frame, "-", 22, function() ns.Shopping.SetNeed(ns.Shopping.state.need - (IsShiftKeyDown() and 10 or 1)) end, "quiet")
+    minus:SetPoint("RIGHT", self.need, "LEFT", -4, 0)
+    local needLabel = K.Label(frame, ns.T("buyCapNeed"), 0, 0, 86, "secondary")
+    needLabel:SetHeight(12); needLabel:SetJustifyH("RIGHT"); needLabel:ClearAllPoints()
+    needLabel:SetPoint("RIGHT", minus, "LEFT", -6, 0)
+    return needLabel
 end
 function UI:NewPlan(frame)
     local K = ns.TradeKit
@@ -306,10 +348,10 @@ function UI:NewPlan(frame)
         end
         row.minus = K.Button(row.frame, "-", 22, function() ns.Shopping.Adjust(row.offer, -1) end, "quiet")
         row.minus:SetHeight(20)
-        row.minus:SetPoint("LEFT", row.frame, "LEFT", 2, 0)
+        row.minus:SetPoint("LEFT", row.frame, "LEFT", 8, 0)
         row.plus = K.Button(row.frame, "+", 22, function() ns.Shopping.Adjust(row.offer, 1) end, "quiet")
         row.plus:SetHeight(20)
-        row.plus:SetPoint("RIGHT", row.frame, "RIGHT", -2, 0)
+        row.plus:SetPoint("RIGHT", row.frame, "RIGHT", -4, 0)
         self.rows[i] = row
         self.offerScroll:Wheel(row.frame)
     end
@@ -321,18 +363,23 @@ function UI:New(parent)
     frame:SetAllPoints(parent)
     self.frame = frame
     self:NewSearch(frame)
-    local results = K.Label(frame, ns.T("buyResults"), 10, -37, LEFT - 20, "heading")
-    results:SetHeight(14)
+    self.resultsLabel = K.Label(frame, ns.T("buyResults"), 10, -37, LEFT - 20, "heading")
+    self.resultsLabel:SetHeight(14)
     self.choiceScroll = K.Scroller:New(frame, function() self:Render() end, 28)
     self.choiceScroll.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -54)
     self.choiceScroll.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMLEFT", LEFT, 36)
     for i = 1, 40 do
-        local choice = K.ItemChoice(frame, function()
-            local item = ns.Shopping.state.items[self.choiceScroll.offset + i]
-            if item then ns.Shopping.Select(item.id) end
-        end)
+        local choice = K.ItemChoice(frame, function(_, button) self:PickChoice(i, button) end)
+        choice:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         choice:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -54 - (i - 1) * 28)
         choice:SetWidth(LEFT - 18); choice.text:SetWidth(LEFT - 52)
+        choice.need = K.Label(choice, "", 0, 0, 52, "secondary")
+        choice.need:SetHeight(12); choice.need:SetJustifyH("RIGHT")
+        choice.need:ClearAllPoints(); choice.need:SetPoint("RIGHT", choice, "RIGHT", -6, 0)
+        choice.head = K.Label(frame, ns.T("buyRecent"), 0, 0, LEFT - 20, "heading")
+        choice.head:SetHeight(14)
+        choice.head:ClearAllPoints(); choice.head:SetPoint("BOTTOMLEFT", choice, "BOTTOMLEFT", 4, 4)
+        choice.head:Hide()
         self.choiceScroll:Wheel(choice)
         self.choices[i] = choice
     end
@@ -356,7 +403,7 @@ function UI:New(parent)
         ns.Shopping.Go()
     end, "main")
     self.go:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 4)
-    self.summary:SetPoint("RIGHT", self.go, "LEFT", -10, 0)
+    self.summary:SetPoint("RIGHT", self:NewNeed(frame), "LEFT", -10, 0)
     frame:SetScript("OnUpdate", function()
         if self.pendingNeed and GetTime() >= self.pendingAt then
             local need = self.pendingNeed

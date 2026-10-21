@@ -92,6 +92,10 @@ function UI.ActivityText()
         local context = UI.ContextText()
         if context and context ~= "" then parts[#parts + 1] = context end
         if UI.lastStatus then parts[#parts + 1] = UI.lastStatus end
+        local parked = ns.Scan.Parked()
+        if parked then
+            parts[#parts + 1] = ns.T("statusParked", parked.page, math.max(parked.pages, 1), K.Ago(time() - parked.at))
+        end
         return table.concat(parts, " | ")
     end
     local text
@@ -128,6 +132,9 @@ function UI.RenderStatus()
     UI.footerProgress:Set(busy and UI.ActivityShare() or nil, busy and not waiting, busy)
     if busy then UI.footerStop:Show() else UI.footerStop:Hide() end
     if ns.Scan.state.phase == "paused" then UI.footerResume:Show() else UI.footerResume:Hide() end
+    local parked = not busy and ns.Scan.Parked()
+    if parked then UI.footerRescan:Show(); UI.footerRescanDrop:Show()
+    else UI.footerRescan:Hide(); UI.footerRescanDrop:Hide() end
 end
 function UI.ViewActive(view)
     if view == "leveling" then return UI.IsProfession(UI.section) and UI.professionModes[UI.section] == "leveling" end
@@ -218,6 +225,8 @@ function UI.OpenSeasonal(key)
     UI:ShowSection("seasonal")
 end
 function UI:ShowProfession(profession)
+    local job = ns.Batch.job
+    if job and job.levelingProfession and job.levelingProfession ~= profession then ns.Batch.Stop() end
     local mode = self.professionModes[profession] or "craft"
     if mode == "leveling" and not ns.levelingCatalogs[profession] then mode = "craft" end
     self.professionModes[profession] = mode
@@ -225,7 +234,9 @@ function UI:ShowProfession(profession)
     if mode == "resale" then
         ns.ResaleUI:SetProps({profession = profession})
         self.resale:Show()
-    elseif mode == "leveling" then self.leveling:Show()
+    elseif mode == "leveling" then
+        ns.LevelingUI:SetProps({profession = profession})
+        self.leveling:Show()
     elseif ns.craftCatalogs[profession] then
         ns.AlchemyUI:SetProps({profession = profession})
         self.alchemy:Show()
@@ -309,6 +320,16 @@ function UI:BuildChrome(parent, root)
     chrome.resume.onClick = UI.ResumeScan
     ns.TradeKit.Tooltip(chrome.stop, ns.T("tradeStop"), ns.T("statusStopTip"))
     ns.TradeKit.Tooltip(chrome.resume, ns.T("tradeResume"), ns.T("statusResumeTip"))
+    self.footerRescan, self.footerRescanDrop = chrome.rescan, chrome.rescanDrop
+    chrome.rescan.onClick = function() ns.Scan.ResumeParked(); UI.Refresh() end
+    chrome.rescanDrop.onClick = function() ns.Scan.DropParked(); UI.Refresh() end
+    ns.TradeKit.Tooltip(chrome.rescan, ns.T("tradeRescan"), "")
+    chrome.rescan.tipFn = function()
+        local parked = ns.Scan.Parked()
+        if not parked then return "" end
+        return ns.T("tradeRescanTip", parked.page, math.max(parked.pages, 1), ns.TradeKit.Ago(time() - parked.at))
+    end
+    ns.TradeKit.Tooltip(chrome.rescanDrop, ns.T("tradeRescanDrop"), ns.T("tradeRescanDropTip"))
     root:SetScript("OnUpdate", function(_, elapsed)
         UI.statusTick = (UI.statusTick or 0) + elapsed
         UI.footerProgress:Tick(elapsed)

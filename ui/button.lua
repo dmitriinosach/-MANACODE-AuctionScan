@@ -58,16 +58,20 @@ SlashCmdList.MCAUCSCAN = function(msg)
     if cmd == "all" then
         ns.Scan.Start("all")
     elseif cmd == "stop" then
-        if not ns.Scan.Stop() then ns.say(ns.T("sayNotRunning")) end
+        if not ns.Scan.Stop() then ns.chat(ns.T("sayNotRunning")) end
     elseif cmd == "status" then
         local db = ns.Store.DB()
         local last = db.scans[#db.scans]
-        ns.say(ns.T("sayStatus", #db.scans, last and last.total or 0, ns.Store.Usage() / 1024 / 1024))
+        ns.chat(ns.T("sayStatus", #db.scans, last and last.total or 0, ns.Store.Usage() / 1024 / 1024))
     elseif cmd == "pace" then
         if (msg or ""):lower():match("^%s*pace%s+reset%s*$") then ns.Scan.ResetPace()
-        else ns.say(ns.T("sayPace", ns.Query.Gap())) end
+        else ns.chat(ns.T("sayPace", ns.Query.Gap())) end
     elseif cmd == "ledger" then
-        if ns.AccountingUI then ns.AccountingUI.Open() else ns.say(ns.T("tradeRestartRequired")) end
+        if ns.AccountingUI then ns.AccountingUI.Open() else ns.chat(ns.T("tradeRestartRequired")) end
+    elseif cmd == "mail" then
+        local on = not ns.CollectUI.Shown()
+        ns.CollectUI.SetShown(on)
+        if on then ns.chat(ns.T("collectShown")) end
     else
         ns.Scan.Start("pages")
     end

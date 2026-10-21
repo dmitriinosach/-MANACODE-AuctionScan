@@ -30,35 +30,58 @@ function UI.RenderDisenchant(b)
     if InCombatLockdown() then return end
     if target and ns.Compat.SpellKnown(13262) then b:Enable() else b:Disable() end
 end
+function UI.Shown()
+    return ns.Store.DB().mailPanel ~= false
+end
+function UI.SetShown(on)
+    local db = ns.Store.DB()
+    if on then db.mailPanel = nil else db.mailPanel = false end
+    UI.Apply()
+    for _, check in ipairs(UI.checks) do check:SetChecked(on) end
+    if not on then ns.say(ns.T("collectHidden")) end
+end
+function UI.Apply()
+    local panel = UI.panel
+    if not panel or InCombatLockdown() then return end
+    if UI.Shown() then panel.frame:Show() else panel.frame:Hide() end
+end
+UI.checks = {}
+function UI.ShownCheck(parent)
+    local K = ns.TradeKit
+    local check = K.Check(parent, function(checked) UI.SetShown(checked) end)
+    check:SetChecked(UI.Shown())
+    check.label = K.Label(parent, ns.T("collectShow"), 0, 0, 110, "secondary")
+    check.label:ClearAllPoints(); check.label:SetPoint("RIGHT", check, "LEFT", -2, 0)
+    check.label:SetJustifyH("RIGHT")
+    K.Tooltip(check, ns.T("collectShow"), ns.T("collectShowTip"))
+    UI.checks[#UI.checks + 1] = check
+    return check
+end
 function UI:New(parent)
     local K = ns.TradeKit
     local view = setmetatable({}, self)
     local f = ns.NewFrame("Frame", nil, parent)
-    f:SetWidth(330); f:SetHeight(92)
-    f:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 14, 72)
+    f:SetWidth(316); f:SetHeight(30)
+    f:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 18, 42)
     f:EnableMouse(true)
     K.Panel(f)
     view.frame = f
-    view.heading = K.Label(f, ns.T("collectTitle"), 12, -10, 306, "heading")
-    view.mail = K.Label(f, "", 12, -30, 150, "secondary")
-    view.bag = K.Label(f, "", 170, -30, 150, "secondary")
-    view.take = K.Button(f, "", 150, function()
+    view.take = K.Button(f, "", 136, function()
         if C.active then C.Stop() else C.Start() end
         view:Render()
     end, "control")
-    view.take:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -46)
+    view.take:SetPoint("TOPLEFT", f, "TOPLEFT", 4, -4)
     K.Tooltip(view.take, ns.T("collectTakeTitle"), ns.T("collectTakeTip"))
-    view.disenchant = UI.DisenchantButton(f, 150)
-    view.disenchant:SetPoint("TOPLEFT", f, "TOPLEFT", 170, -46)
-    view.status = K.Label(f, "", 12, -74, 306, "secondary")
+    view.disenchant = UI.DisenchantButton(f, 136)
+    view.disenchant:SetPoint("LEFT", view.take, "RIGHT", 4, 0)
+    view.hide = K.IconButton(f, "hide", function() UI.SetShown(false) end, ns.T("collectHide"), ns.T("collectHideTip"))
+    view.hide:SetPoint("LEFT", view.disenchant, "RIGHT", 6, 0)
+    view.status = K.Label(f, "", 8, -30, 300, "secondary")
     f:SetScript("OnShow", function() view:Render() end)
     return view
 end
 function UI:Render()
     local mail = C.active and #C.MailTargets(C.budget or {}) or C.MailCount()
-    local _, bag = C.NextDisenchant()
-    self.mail:SetText(ns.T("collectMail", mail))
-    self.bag:SetText(ns.T("collectBag", bag))
     if C.active then
         self.take:SetText(ns.T("collectStop", C.taken)); self.take:Enable()
     else
@@ -66,7 +89,9 @@ function UI:Render()
         if mail > 0 then self.take:Enable() else self.take:Disable() end
     end
     UI.RenderDisenchant(self.disenchant)
-    self.status:SetText(C.reason and ns.T(C.reason, C.taken) or "")
+    local status = C.reason and ns.T(C.reason, C.taken) or ""
+    self.status:SetText(status)
+    self.frame:SetHeight(status ~= "" and 46 or 30)
 end
 function UI.Refresh()
     local panel = UI.panel
@@ -87,5 +112,6 @@ events:SetScript("OnEvent", function(_, event)
     if event == "MAIL_SHOW" and not UI.panel and MailFrame and not InCombatLockdown() then
         UI.panel = UI:New(MailFrame)
     end
+    UI.Apply()
     UI.Refresh()
 end)

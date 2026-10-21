@@ -3,6 +3,37 @@ local S = { items = {}, offers = {}, options = {}, need = 1, got = 0, spent = 0,
 local Shop = { state = S }
 ns.Shopping = Shop
 Shop.onChange = nil
+local HISTORY = 15
+function Shop.History()
+    local db = ns.Store.DB()
+    if type(db.buyHistory) ~= "table" then db.buyHistory = {} end
+    return db.buyHistory
+end
+local function remember(id, name)
+    local list = Shop.History()
+    for i = #list, 1, -1 do
+        if list[i].id == id then table.remove(list, i) end
+    end
+    table.insert(list, 1, {id = id, name = name, need = S.need, at = time()})
+    while #list > HISTORY do table.remove(list) end
+end
+function Shop.Forget(id)
+    local list = Shop.History()
+    for i = #list, 1, -1 do
+        if list[i].id == id then table.remove(list, i) end
+    end
+    if Shop.onChange then Shop.onChange() end
+end
+function Shop.Repeat(id)
+    for _, entry in ipairs(Shop.History()) do
+        if entry.id == id then
+            if not Shop.Search(entry.name or ns.Markets.Name(id), id) then return false end
+            if not S.priceLimit and S.itemID ~= id then S.need = math.max(1, entry.need or 1) end
+            return true
+        end
+    end
+    return false
+end
 function Shop.Got()
     return S.got + (S.run and ns.Buy.state.bought or 0)
 end
@@ -46,6 +77,8 @@ function Shop.SetNeed(need)
     if need == S.need and not limited then return end
     if Shop.Left() == 0 then S.got, S.spent, S.run = 0, 0, false end
     S.need = need
+    local head = Shop.History()[1]
+    if head and head.id == S.itemID then head.need = need end
     Shop.Replan()
 end
 function Shop.Select(id)
@@ -54,6 +87,7 @@ function Shop.Select(id)
         if item.id == id then
             if S.itemID ~= id then S.got, S.spent, S.run = 0, 0, false end
             S.itemID, S.name, S.offers = id, item.name, item.offers
+            remember(id, item.name)
             Shop.Replan()
             return
         end

@@ -8,17 +8,21 @@ local function integer(value, fallback, low, high)
 end
 function L.Options(options)
     options = options or {}
+    local profession = options.profession or "enchanting"
+    local catalog = ns.levelingCatalogs[profession]
     local first = integer(options.first, 1, 1, 450)
-    return {first = first, target = integer(options.target, 450, first, 450),
-        tool = integer(options.tool, 0, 0, 9), reserve = integer(options.reserve, 0, 0, 20),
+    return {profession = profession, first = first, target = integer(options.target, 450, first, 450),
+        tool = integer(options.tool, 0, 0, catalog and #catalog.tools or 0), reserve = integer(options.reserve, 0, 0, 20),
         owned = options.owned == true, choices = options.choices or {}, known = options.known or {},
         make = options.make or {}, open = options.open or {}}
 end
-function L.Obtain(id)
-    return ns.levelingCatalogs.enchanting.obtains[id] or ns.Crafting.byItem[id]
+function L.Obtain(id, options)
+    local catalog = ns.levelingCatalogs[options and options.profession or "enchanting"]
+    return catalog and (catalog.obtains[id] or ns.Crafting.byItem[id])
 end
-function L.Quote(id)
-    local vendor = ns.levelingCatalogs.enchanting.vendors[id]
+function L.Quote(id, options)
+    local catalog = ns.levelingCatalogs[options and options.profession or "enchanting"]
+    local vendor = catalog and catalog.vendors[id]
     if vendor then return {price = vendor, vendor = true, complete = true, miss = 0} end
     return ns.Markets.Quote(id)
 end
@@ -26,7 +30,7 @@ local function price(quote)
     if quote and quote.price and quote.complete and (quote.miss or 0) == 0 then return quote.price end
 end
 local function unitCost(id, options, quotes, path)
-    local obtain = options.make[id] and L.Obtain(id)
+    local obtain = options.make[id] and L.Obtain(id, options)
     if obtain and not path[id] then
         path[id] = true
         local total = 0
@@ -38,7 +42,7 @@ local function unitCost(id, options, quotes, path)
         path[id] = nil
         return total / obtain.count
     end
-    if quotes[id] == nil then quotes[id] = L.Quote(id) or false end
+    if quotes[id] == nil then quotes[id] = L.Quote(id, options) or false end
     return price(quotes[id])
 end
 local function better(left, right)
@@ -100,8 +104,9 @@ local function transition(catalog, options, stage, recipe, previous, quotes)
     return step
 end
 function L.Route(options)
-    local catalog = ns.levelingCatalogs.enchanting
     local p = L.Options(options)
+    local catalog = ns.levelingCatalogs[p.profession]
+    if not catalog then return {options = p, steps = {}, inputs = {}, missing = 0, unavailable = true, comparison = false} end
     local initial = {cost = 0, missing = 0, tool = p.tool, mask = 0}
     local states, quotes, comparison = {initial}, {}, true
     for _, stage in ipairs(L.Stages(catalog, p)) do
@@ -140,7 +145,7 @@ function L.Route(options)
     return out
 end
 function L.Alternatives(route, step)
-    local catalog, out = ns.levelingCatalogs.enchanting, {}
+    local catalog, out = ns.levelingCatalogs[route.options.profession], {}
     local stage = {first = step.first, target = step.target, index = step.index}
     for _, spell in ipairs(catalog.stages[step.index].choices) do
         local candidate = transition(catalog, route.options, stage, catalog.recipes[spell], step.prev, {})
@@ -148,10 +153,10 @@ function L.Alternatives(route, step)
     end
     return out
 end
-local function purchase(need, id)
+local function purchase(need, id, options)
     if need == 0 then return {cost = 0, units = 0} end
     if need > 1000 or not ns.Markets.Fresh(id) then return nil end
-    local item, q = ns.Markets.Item(id), L.Quote(id)
+    local item, q = ns.Markets.Item(id), L.Quote(id, options)
     if not item or not q or q.shared then return nil end
     local observation = item.observations[item.quote.scanID]
     if not observation or observation.truncated then return nil end
@@ -170,11 +175,12 @@ local function purchase(need, id)
 end
 function L.Basket(route)
     local p, stock, surplus, pending, used, roots = route.options, {}, {}, {}, {}, {}
+    local catalog = ns.levelingCatalogs[p.profession]
     local rows, leaves = {}, {}
     local out = {rows = rows, leaves = leaves, roots = roots, cost = 0, cash = 0, lotsCost = 0,
         missing = 0, cashMissing = 0, stale = 0, unavailable = route.unavailable, extra = 0}
     local function build(id, count, depth, path)
-        local q, obtain = L.Quote(id), L.Obtain(id)
+        local q, obtain = L.Quote(id, p), L.Obtain(id, p)
         local expandable = obtain and not path[id] and depth < 8
         local make = p.make[id] and expandable or false
         local row = {id = id, count = count, depth = depth, quote = q, expandable = expandable,
@@ -228,10 +234,10 @@ function L.Basket(route)
     end
     out.lotsMissing = 0
     for _, leaf in pairs(leaves) do
-        local batch = ns.levelingCatalogs.enchanting.vendorBatches[leaf.id] or 1
+        local batch = catalog.vendorBatches[leaf.id] or 1
         local units = math.ceil(leaf.need / batch) * batch
         local plan = leaf.quote and leaf.quote.vendor and {cost = units * leaf.quote.price, units = units}
-            or purchase(leaf.need, leaf.id)
+            or purchase(leaf.need, leaf.id, p)
         leaf.plan = plan
         if plan then out.lotsCost = out.lotsCost + plan.cost else out.lotsMissing = out.lotsMissing + 1 end
     end
@@ -241,11 +247,23 @@ function L.Basket(route)
     return out
 end
 function L.Targets(options, all)
-    local p, catalog, seen, ids = L.Options(options), ns.levelingCatalogs.enchanting, {}, {}
+    local seen, ids = {}, {}
+    if options == nil and all then
+        for profession in pairs(ns.levelingCatalogs) do
+            for _, id in ipairs(L.Targets({profession = profession}, true)) do
+                if not seen[id] then seen[id] = true; ids[#ids + 1] = id end
+            end
+        end
+        table.sort(ids)
+        return ids
+    end
+    local p = L.Options(options)
+    local catalog = ns.levelingCatalogs[p.profession]
+    if not catalog then return ids end
     local function add(id, path)
         if seen[id] or catalog.vendors[id] or ns.vendorPrices[id] then return end
         seen[id] = true; ids[#ids + 1] = id
-        local obtain = L.Obtain(id)
+        local obtain = L.Obtain(id, p)
         if obtain and not path[id] and (all or p.make[id]) then
             path[id] = true
             for _, input in ipairs(obtain.inputs) do add(input[1], path) end
@@ -284,7 +302,9 @@ function L.Targets(options, all)
     return ids
 end
 function L.Complete(options, all, force)
-    return ns.Batch.Complete(L.Targets(options, all), force, true)
+    local started = ns.Batch.Complete(L.Targets(options, all), force, true)
+    if started and ns.Batch.job then ns.Batch.job.levelingProfession = L.Options(options).profession end
+    return started
 end
 function L.Brackets(route)
     local ranks = {1, 75, 150, 225, 300, 375, 450}

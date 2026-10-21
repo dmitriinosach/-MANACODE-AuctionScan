@@ -61,7 +61,8 @@ function UI:Render()
         if entry then
             row:SetProps({id = entry.raw, quote = entry.quote, width = width, reveal = true,
                 active = entry.raw == self.selected, detail = entry.detail, extraTip = ns.T(entry.noteKey),
-                marginText = ns.T("seasonNeed", entry.count)})
+                marginText = ns.T("seasonNeed", entry.count),
+                tag = ns.Markets.FromVendor(entry.raw) and ns.T("vendorAvailable") or nil})
         else row.frame:Hide() end
     end
     self.empty:SetText(#entries == 0 and ns.T("seasonNoAuctionItems") or "")
@@ -70,7 +71,8 @@ function UI:Render()
         local q = selected.quote
         self.price:SetText(K.Money(q and q.price))
         self.observed:SetText(q and not q.vendor and date("%d.%m %H:%M", q.at) or ns.T("tradeNoPrice"))
-        self.summary:SetText(ns.T(selected.noteKey))
+        self.summary:SetText((ns.Markets.FromVendor(selected.raw) and ns.T("vendorAvailableTip") .. "\n\n" or "")
+            .. ns.T(selected.noteKey))
         self.buy:Enable()
     else
         self.inspector:Clear()

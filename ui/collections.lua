@@ -52,7 +52,8 @@ function UI:Render()
         if i > self.scroll.visible then entry = nil end
         if entry then
             row:SetProps({id = entry.raw, quote = entry.quote, margin = entry.margin, width = width,
-                active = entry.raw == self.selected, detail = entry.detail})
+                active = entry.raw == self.selected, detail = entry.detail,
+                tag = ns.Markets.FromVendor(entry.raw) and ns.T("vendorAvailable") or nil})
         else row.frame:Hide() end
     end
     self.empty:SetText(#entries == 0 and ns.T("collectionEmpty") or "")

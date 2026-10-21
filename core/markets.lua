@@ -108,6 +108,16 @@ end
 local function marketKey(realm, faction)
     return realm .. "|" .. faction
 end
+function M.FromVendor(id)
+    if ns.vendorPrices and ns.vendorPrices[id] then return true end
+    if not M.vendorItems then
+        M.vendorItems = {}
+        for _, event in ipairs(ns.seasonalEvents or {}) do
+            for _, item in ipairs(event.items) do if item.vendor then M.vendorItems[item.id] = true end end
+        end
+    end
+    return M.vendorItems[id] == true
+end
 function M.Catalog(id)
     if (ns.gemByItem and ns.gemByItem[id]) or (ns.Crafting and ns.Crafting.items and ns.Crafting.items[id])
         or (ns.Resale and ns.Resale.byItem and ns.Resale.byItem[id]) then return true end

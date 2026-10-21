@@ -16,6 +16,9 @@ local PAGE_TIMEOUT = 30
 local RETRY = 2
 local ALL_TIMEOUT = 300
 local PAUSE_LIMIT = 1800
+local PARK_LIMIT = 86400
+local OVERLAP = 2
+local REWIND_AFTER = 120
 local S = {
     phase = "idle", mode = "pages", scan = nil, index = 1, count = 0, page = 0, pages = 0,
     expect = 0, miss = 0, retry = {}, rereads = 0, tries = 0, gap = GAP, errors = 0, sig = "", stale = 0, sentAt = 0, readAt = 0, nextAt = 0,
@@ -55,11 +58,17 @@ local function readOne(i)
     end
     ns.Store.Item(item, name, quality)
     local lots = S.scan.lots
-    lots[#lots + 1] = ns.Lot.Encode({
+    local line = ns.Lot.Encode({
         item = item, suffix = suffix, count = count or 1, minBid = minBid or 0,
         buyout = buyout or 0, bid = bid or 0,
         timeLeft = GetAuctionItemTimeLeft("list", i) or 0, owner = owner,
     })
+    local seen = S.seen
+    if seen and S.page < (S.seenUntil or 0) and (seen[line] or 0) > 0 then
+        seen[line] = seen[line] - 1
+        return true
+    end
+    lots[#lots + 1] = line
     return true
 end
 local function signature(count)
@@ -82,8 +91,32 @@ local function pageReady(count)
     end
     return true
 end
+local function wholeMarket(scan)
+    return scan ~= nil and S.mode == "pages" and not scan.itemID and not scan.family
+        and scan.scope ~= "disenchant" and scan.scope ~= "gems" and (not scan.query or scan.query == "")
+end
+local function park(key)
+    local scan = S.scan
+    ns.Store.DB().unfinished = {scan = scan, page = S.page, pages = S.pages, expect = S.expect, miss = S.miss,
+        at = time(), ran = math.floor(GetTime() - S.startedAt)}
+    ns.Store.Log("park page=" .. S.page .. "/" .. S.pages .. " lots=" .. #scan.lots)
+    Scan.purchaseRequest = nil
+    S.phase, S.scan, S.seen, S.seenUntil = "idle", nil, nil, nil
+    if key then
+        status("stParked", S.page, math.max(S.pages, 1))
+    end
+end
+local function rewind()
+    local from = math.max(0, S.page - OVERLAP)
+    if from == S.page then return end
+    local lots, seen = S.scan.lots, {}
+    for i = math.max(1, #lots - (S.page - from) * PAGE + 1), #lots do seen[lots[i]] = (seen[lots[i]] or 0) + 1 end
+    S.seen, S.seenUntil, S.page, S.sig = seen, S.page, from, ""
+end
 local function finish()
     local scan = S.scan
+    S.seen, S.seenUntil = nil, nil
+    if wholeMarket(scan) then ns.Store.DB().unfinished = nil end
     if ns.Disenchant then ns.Disenchant.RestoreSort(scan) end
     scan.total = #scan.lots
     scan.expect = S.expect
@@ -91,19 +124,15 @@ local function finish()
     scan.secs = time() - scan.t
     if scan.truncated and scan.deScannedPages then scan.deReadPages = scan.deScannedPages end
     local drafts = ns.Store.DB().disenchantDrafts
-    if drafts and drafts[scan.deGroup] and drafts[scan.deGroup].id == scan.id then drafts[scan.deGroup] = nil end
+    if drafts and scan.deGroup then drafts[scan.deGroup] = nil end
     local dropped = ns.Store.Commit(scan)
     ns.Store.Log("done " .. S.mode .. " lots=" .. scan.total .. " expect=" .. S.expect .. " miss=" .. S.miss
         .. " secs=" .. scan.secs .. " errors=" .. S.errors .. " gap=" .. S.gap)
     S.phase, S.scan = "idle", nil
-    status("stDone", scan.total)
-    ns.say(ns.T("sayDone", scan.total, scan.secs))
-    if scan.deCutStopped then ns.say(ns.T("deCutStopped", ns.T("deCutReason" .. scan.deCutStopped))) end
-    if S.miss > 0 then ns.say(ns.T("sayMiss", S.miss)) end
-    if S.mode == "all" and S.expect > scan.total + S.miss then
-        ns.say(ns.T("sayCut", scan.total + S.miss, S.expect))
-    end
-    if dropped > 0 then ns.say(ns.T("sayDropped", dropped)) end
+    if S.mode == "all" and S.expect > scan.total + S.miss then status("stDoneCut", scan.total + S.miss, S.expect)
+    elseif S.miss > 0 then status("stDoneMiss", scan.total, S.miss)
+    else status("stDone", scan.total) end
+    if dropped > 0 then ns.Store.Log("dropped old scans=" .. dropped) end
     if Scan.onComplete then Scan.onComplete(scan) end
 end
 local function fail(key)
@@ -111,17 +140,18 @@ local function fail(key)
     Scan.purchaseRequest = nil
     if ns.Disenchant then ns.Disenchant.RestoreSort(S.scan) end
     ns.Store.Log("fail " .. key .. " phase=" .. S.phase .. " page=" .. (S.page + 1) .. "/" .. S.pages)
-    S.phase, S.scan = "idle", nil
+    S.phase, S.scan, S.seen, S.seenUntil = "idle", nil, nil, nil
     if Scan.onAbort then Scan.onAbort() end
     status(key)
-    ns.say(ns.T(key))
 end
+local PAUSE_STATUS = {sayForeign = "stPauseForeign", sayRefused = "stPauseRefused",
+    sayPageUnchanged = "stPauseUnchanged", sayNoAnswer = "stPauseNoAnswer", sayAfk = "stPauseAfk",
+    sayClosed = "stPauseClosed"}
 local function pause(key)
     Scan.purchaseRequest = nil
     ns.Store.Log("pause " .. key .. " phase=" .. S.phase .. " page=" .. (S.page + 1) .. "/" .. S.pages)
     S.phase, S.pausedAt = "paused", GetTime()
-    status("stPaused", S.page + 1, math.max(S.pages, 1))
-    ns.say(ns.T(key, S.page + 1, math.max(S.pages, 1)))
+    status(PAUSE_STATUS[key] or "stPaused", S.page + 1, math.max(S.pages, 1))
 end
 local function onForeign()
     if sending or S.phase == "idle" or S.phase == "paused" then return end
@@ -249,23 +279,26 @@ function Scan.Start(mode, target)
         return false
     end
     if S.phase == "paused" then
-        if target and (S.scan.itemID ~= target.itemID or S.scan.query ~= target.query or S.scan.family ~= target.family) then
+        local other = target and (S.scan.itemID ~= target.itemID or S.scan.query ~= target.query or S.scan.family ~= target.family)
+        if other and wholeMarket(S.scan) then
+            if S.page > 0 then park("sayParked") else S.phase, S.scan = "idle", nil end
+        elseif other then
             ns.say(ns.T("tradeOtherScan"))
             return false
-        end
-        if not S.open then
+        elseif not S.open then
             ns.say(ns.T("sayNoAuction"))
             return false
-        end
-        if GetTime() - S.pausedAt <= PAUSE_LIMIT then
+        elseif wholeMarket(S.scan) or GetTime() - S.pausedAt <= PAUSE_LIMIT then
+            if GetTime() - S.pausedAt > REWIND_AFTER then rewind() end
             ns.Store.Log("resume page=" .. (S.page + 1) .. "/" .. S.pages)
             S.phase, S.nextAt, S.tries = "send", GetTime(), 0
             status("stPage", S.page + 1, tostring(math.max(S.pages, 1)))
             return true
+        else
+            if ns.Disenchant then ns.Disenchant.RestoreSort(S.scan) end
+            S.phase, S.scan = "idle", nil
+            ns.say(ns.T("sayStale"))
         end
-        if ns.Disenchant then ns.Disenchant.RestoreSort(S.scan) end
-        S.phase, S.scan = "idle", nil
-        ns.say(ns.T("sayStale"))
     end
     if S.phase ~= "idle" then
         ns.say(ns.T("sayBusy"))
@@ -278,7 +311,6 @@ function Scan.Start(mode, target)
     local _, canMass = CanSendAuctionQuery("list")
     if mode == "all" and not canMass then
         status("stMassWait")
-        ns.say(ns.T("sayMassWait"))
         return false
     end
     if mode == "all" and not ns.Query.Ready(true) then ns.say(ns.T("sayBusy")); return false end
@@ -306,7 +338,7 @@ function Scan.Start(mode, target)
             ns.Disenchant.Prepare(S.scan)
         end
     end
-    S.page, S.pages, S.expect, S.miss, S.retry = 0, 0, 0, 0, {}
+    S.page, S.pages, S.expect, S.miss, S.retry, S.seen, S.seenUntil = 0, 0, 0, 0, {}, nil, nil
     S.tries, S.rereads, S.shownSecs, S.startedAt = 0, 0, nil, GetTime()
     S.gap, S.errors, S.sig, S.stale = ns.Query.Gap(), 0, "", 0
     ns.Store.Log("start " .. mode .. " item=" .. tostring(S.scan.itemID or 0))
@@ -363,7 +395,51 @@ end
 function Scan.Stop()
     if S.phase == "idle" then return false end
     ns.Store.DB().pending = nil
+    if wholeMarket(S.scan) and S.page > 0 then park("sayParked"); return true end
     fail("stStopped")
+    return true
+end
+function Scan.Release()
+    if S.phase == "paused" and wholeMarket(S.scan) then
+        if S.page > 0 then park("sayParked") else S.phase, S.scan = "idle", nil end
+    end
+    return S.phase == "idle"
+end
+function Scan.Parked()
+    local db = ns.Store.DB()
+    local p = db.unfinished
+    if type(p) ~= "table" or type(p.scan) ~= "table" or type(p.scan.lots) ~= "table" then return nil end
+    if time() - (p.at or 0) > PARK_LIMIT then
+        db.unfinished = nil
+        return nil
+    end
+    if p.scan.realm ~= (GetRealmName() or "") or p.scan.faction ~= (UnitFactionGroup("player") or "") then return nil end
+    return p
+end
+function Scan.DropParked()
+    ns.Store.DB().unfinished = nil
+end
+function Scan.ResumeParked()
+    local p = Scan.Parked()
+    if not p then return false end
+    if (ns.Buy and ns.Buy.Active()) or S.phase ~= "idle" then ns.say(ns.T("sayBusy")); return false end
+    if cooling() > 0 then ns.say(ns.T("tradeCooling", math.ceil(cooling()))); return false end
+    if not S.open then ns.say(ns.T("sayNoAuction")); return false end
+    if not hooked then
+        hooksecurefunc("QueryAuctionItems", onForeign)
+        hooked = true
+    end
+    ns.Store.DB().unfinished = nil
+    S.mode, S.scan, S.page, S.pages = "pages", p.scan, p.page or 0, p.pages or 0
+    S.expect, S.miss, S.retry, S.tries, S.rereads = p.expect or 0, p.miss or 0, {}, 0, 0
+    S.gap, S.errors, S.sig, S.stale, S.shownSecs = ns.Query.Gap(), 0, "", 0, nil
+    S.startedAt = GetTime() - (p.ran or 0)
+    S.seen, S.seenUntil = nil, nil
+    rewind()
+    S.scan.resumes = (S.scan.resumes or 0) + 1
+    ns.Store.Log("rescan page=" .. (S.page + 1) .. "/" .. S.pages .. " lots=" .. #S.scan.lots)
+    S.phase, S.nextAt = "send", GetTime()
+    status("stPage", S.page + 1, tostring(math.max(S.pages, 1)))
     return true
 end
 function Scan.CheckpointDisenchant()
@@ -399,12 +475,12 @@ function Scan.SnapshotForPurchase(key, ready)
     return true
 end
 function Scan.ResetPace(silent)
-    if S.phase ~= "idle" or (ns.Buy and ns.Buy.Active()) then ns.say(ns.T("sayBusy")); return false end
+    if not Scan.Release() or (ns.Buy and ns.Buy.Active()) then ns.say(ns.T("sayBusy")); return false end
     if cooling() > 0 then ns.say(ns.T("tradeCooling", math.ceil(cooling()))); return false end
     ns.Store.DB().scanGap = nil
     S.gap = ns.Query.Gap()
     ns.Store.Log("pace reset gap=" .. S.gap)
-    if not silent then ns.say(ns.T("sayPace", S.gap)) end
+    if not silent then ns.chat(ns.T("sayPace", S.gap)) end
     return true
 end
 function Scan.OnAfk()
@@ -423,6 +499,7 @@ function Scan.Save()
     local db = ns.Store.DB()
     db.pending = nil
     if S.phase == "idle" or S.mode ~= "pages" or not S.scan then return end
+    if wholeMarket(S.scan) and S.page > 0 then return park(nil) end
     local now = GetTime()
     local idle = S.phase == "paused" and math.floor(now - S.pausedAt) or 0
     db.pending = {
@@ -449,7 +526,7 @@ function Scan.Restore()
     S.gap, S.errors = ns.Query.Gap(), 0
     S.phase, S.pausedAt, S.startedAt = "paused", now - age, now - (p.ran or 0)
     ns.Store.Log("restored page=" .. (S.page + 1) .. "/" .. S.pages .. " lots=" .. #S.scan.lots)
-    ns.say(ns.T("sayRestored", S.page + 1, math.max(S.pages, 1)))
+    status("stRestored", S.page + 1, math.max(S.pages, 1))
 end
 function Scan.OnShow()
     S.open = true

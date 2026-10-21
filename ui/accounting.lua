@@ -386,7 +386,7 @@ function UI:Render()
     local hint = self.message
     if not hint and p.unknownSales > 0 then hint = ns.T("acUnknownSales", p.unknownSales) end
     if not hint and p.stages.unsure > 0 then hint = ns.T("acUnsureHint", p.stages.unsure) end
-    self.status:SetWidth(width - 20)
+    self.status:SetWidth(width - 160)
     self.status:SetText(hint or "")
     ns.TradeKit.Tooltip(self.views.frame, ns.T("acTitle"), ns.T("acHint"))
     if hint and hint == self.message then self.status:SetTextColor(unpack(K.theme.negative))
@@ -457,6 +457,8 @@ function UI:New(parent)
     view.empty = K.Label(f, "", 20, -160, 600, "secondary"); view.empty:SetHeight(60)
     view.status = K.Label(f, "", 10, 0, 700, "secondary")
     view.status:ClearAllPoints(); view.status:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 8); view.status:SetHeight(16)
+    view.mailPanel = ns.CollectUI.ShownCheck(f)
+    view.mailPanel:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -10, 6)
     f:SetScript("OnSizeChanged", function() view:Render() end)
     f:SetScript("OnShow", function() view:Render() end)
     self.all[#self.all + 1] = view

@@ -76,7 +76,7 @@ local function plan(sources, mode, skipUnknown)
     return job, failed
 end
 local function begin(sources, mode, skipUnknown)
-    if ns.Scan.state.phase ~= "idle" or ns.Buy.Active() then ns.say(ns.T("sayBusy")); return false end
+    if not ns.Scan.Release() or ns.Buy.Active() then ns.say(ns.T("sayBusy")); return false end
     local job, failed = plan(sources, mode, skipUnknown)
     local items = job.items
     if failed then ns.say(ns.T("alchemyColdItem", ns.Markets.Name(failed))); return false end

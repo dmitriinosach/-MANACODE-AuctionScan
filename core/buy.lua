@@ -169,7 +169,7 @@ end
 function Buy.Start(name, plan, itemID, guard, category)
     if Buy.Active() then return false end
     if not ns.Scan.state.open then ns.say(ns.T("sayNoAuction")); return false end
-    if ns.Scan.state.phase ~= "idle" then ns.say(ns.T("sayBusy")); return false end
+    if not ns.Scan.Release() then ns.say(ns.T("sayBusy")); return false end
     if ns.Query.Cooling() > 0 then ns.say(ns.T("tradeCooling", math.ceil(ns.Query.Cooling()))); return false end
     for _, pending in ipairs(R.pending) do
         if pending.expires > GetTime() then ns.say(ns.T("buySettling")); return false end

@@ -290,7 +290,7 @@ function P.Purchase(mode, id, options)
         return ns.Buy.Confirm()
     end
     if ns.Buy.Active() or not ns.Scan.state.open then return false end
-    if ns.Scan.state.phase ~= "idle" then ns.say(ns.T("sayBusy")); return false end
+    if not ns.Scan.Release() then ns.say(ns.T("sayBusy")); return false end
     local plan = P.PurchasePlan(mode, id, options)
     if plan.count == 0 then ns.say(ns.T("pmBuyEmpty")); return false end
     local limit = plan.limit
