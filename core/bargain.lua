@@ -190,8 +190,9 @@ local function vendorRows(scan, now, info)
                 local row = byKey[key]
                 if row then
                     row.copies = row.copies + 1
-                elseif B.placed[key] ~= scan.id then
+                else
                     row = makeVendorRow(kind, key, scan, lot, g, deal)
+                    row.placed = B.placed[key] == scan.id
                     byKey[key] = row
                     rows[#rows + 1] = row
                 end
@@ -245,8 +246,9 @@ function B.Rows(kind, options)
                             local row = byKey[key]
                             if row then
                                 row.copies = row.copies + 1
-                            elseif B.placed[key] ~= scan.id then
+                            else
                                 row = makeRow(kind, key, scan, lot, g, ref, cost, fee)
+                                row.placed = B.placed[key] == scan.id
                                 if row.profit > 0 then
                                     byKey[key] = row
                                     rows[#rows + 1] = row
@@ -259,6 +261,7 @@ function B.Rows(kind, options)
         end
     end
     table.sort(rows, function(a, b)
+        if (a.placed or false) ~= (b.placed or false) then return not a.placed end
         if a.profit ~= b.profit then return a.profit > b.profit end
         local left, right = a.discount or 0, b.discount or 0
         if left ~= right then return left > right end
@@ -329,6 +332,7 @@ function B.Active()
     return B.job ~= nil and ns.Buy.Active()
 end
 function B.Act(row)
+    if row.placed then return false end
     if ns.Buy.Active() then
         if B.job and B.job.row.key == row.key then return ns.Buy.Confirm() end
         ns.say(ns.T("bargainBusy"))

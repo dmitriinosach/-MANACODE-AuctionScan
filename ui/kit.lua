@@ -2056,7 +2056,7 @@ function DRow:Render()
     self.frame:SetWidth(p.width)
     K.SetItemChoice(self.frame, p.id, p.active, p.quality)
     self.frame.extraTip = p.tip
-    K.ItemTag(self.frame, self.tag, columns.item, p.tag)
+    K.ItemTag(self.frame, self.tag, columns.item, p.tag, p.tagTone)
     for key, cell in pairs(self.cells) do
         local column = columns[key]
         cell:ClearAllPoints()
@@ -2906,15 +2906,24 @@ local BargainRow = setmetatable({}, {__index = K.LedgerRow})
 BargainRow.__index = BargainRow
 K.BargainRow = BargainRow
 K.ITEM_TAG = 86
-function K.ItemTag(frame, label, item, text)
+function K.ItemTag(frame, label, item, text, tone)
     local room = item[2] - 38
     if label and text then
         label:ClearAllPoints(); label:SetPoint("LEFT", frame, "LEFT", item[1] + item[2] - K.ITEM_TAG, 0)
         label:SetWidth(K.ITEM_TAG - 6); label:SetText(text)
-        label:SetTextColor(unpack(K.theme.positive)); label:Show()
+        label:SetTextColor(unpack(K.theme[tone or "positive"])); label:Show()
         room = room - K.ITEM_TAG
     elseif label then label:Hide() end
     frame.text:SetWidth(math.max(40, room))
+end
+function K.BoughtMark(id, since)
+    local h = ns.Buy and ns.Buy.Bought(id, since)
+    if not h then return nil end
+    local tips = {}
+    if h.units > 0 then tips[#tips + 1] = ns.T("boughtTip", h.units, K.Money(h.spent)) end
+    if h.bids > 0 then tips[#tips + 1] = ns.T("boughtBidTip", h.bids, K.Money(h.bidSpent)) end
+    if h.units > 0 then return ns.T("boughtTag", h.units), "accent", table.concat(tips, "\n") end
+    return ns.T("boughtBidTag", h.bids), "secondary", table.concat(tips, "\n")
 end
 function BargainRow:Render()
     local p, frame = self.props, self.frame
@@ -2923,7 +2932,7 @@ function BargainRow:Render()
     K.SetItemChoice(frame, p.id, p.active, p.quality)
     frame.extraTip = p.tip
     for key, cell in pairs(self.cells) do if not columns[key] or not p.cells[key] then cell:Hide() end end
-    K.ItemTag(frame, p.tag and self:Cell("tag") or self.cells.tag, columns.item, p.tag)
+    K.ItemTag(frame, p.tag and self:Cell("tag") or self.cells.tag, columns.item, p.tag, p.tagTone)
     for key, value in pairs(p.cells) do
         local column = columns[key]
         if column then

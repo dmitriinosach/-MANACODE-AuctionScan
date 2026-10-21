@@ -665,6 +665,8 @@ function UI:Render()
     for _, entry in ipairs(rows) do if entry.id == self.selected then selected = entry end end
     if not selected then selected = order[1] and order[1].entries[1]; self.selected = selected and selected.id end
     local usedRows, usedGroups = 0, 0
+    local shot = D.Snapshot(self.group)
+    local since = shot and (shot.t + (shot.secs or 0))
     for i = 1, visible do
         local line = lines[offset + i]
         if line and line.entry then
@@ -673,6 +675,7 @@ function UI:Render()
             if row then
                 row.frame:ClearAllPoints(); row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -top - (i - 1) * 24)
                 local via, rate = self:Via(entry)
+                local bought, boughtTone, boughtTip = K.BoughtMark(entry.id, since)
                 row:SetProps({id = entry.id, width = width, target = target ~= nil, quality = entry.meta.quality or 2,
                     level = entry.meta.level, cost = entry.cost,
                     margin = entry.estimate.margin, percent = entry.estimate.percent, via = via, viaRate = rate,
@@ -680,8 +683,10 @@ function UI:Render()
                     match = self:PriceLimit() and entry.cost < self.buyPrice or not self:PriceLimit()
                         and entry.estimate.percent ~= nil and entry.estimate.percent > self.buyPercent,
                     tip = ns.T("deRow", entry.meta.level, entry.meta.skill) .. "\n" .. self:Formula(entry)
-                        .. (entry.vendor and ("\n\n" .. self:VendorTip(entry)) or ""),
-                    tag = entry.vendor and ns.T("vendorTag", K.MoneyShort(entry.vendor.profit)) or nil,
+                        .. (entry.vendor and ("\n\n" .. self:VendorTip(entry)) or "")
+                        .. (boughtTip and ("\n\n" .. boughtTip) or ""),
+                    tag = bought or (entry.vendor and ns.T("vendorTag", K.MoneyShort(entry.vendor.profit)) or nil),
+                    tagTone = boughtTone,
                     actionDisabled = not self:CanPurchase() or (self:PriceLimit() and entry.cost >= self.buyPrice)
                         or (not self:PriceLimit() and not entry.estimate.percent)
                         or entry.cost > GetMoney()})

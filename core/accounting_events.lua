@@ -1,9 +1,10 @@
 local _, ns = ...
-local E = {mailOpen = false, queue = {}, echo = {}, taken = {}}
+local E = {mailOpen = false, queue = {}, echo = {}, taken = {}, gifts = {}, arriving = {}}
 ns.AccountingEvents = E
 local ANSWER = 5
 local CAPTURE = 60
 local QUIET = 0.6
+local ATTACHMENTS = 12
 function E.BagCount(itemID, suffix)
     if not GetContainerNumSlots or not GetContainerItemLink or not GetContainerItemInfo then return nil end
     local count = 0
@@ -166,6 +167,8 @@ function E.CheckMail()
         local before = E.mailCounts[key]
         if count and before and count > before then
             local left = count - before
+            local gift = math.min(left, E.arriving[key] or 0)
+            E.arriving[key], left = (E.arriving[key] or 0) - gift, left - gift
             for _, chain in ipairs(info.chains) do
                 local take = math.min(left, chain.count - chain.received)
                 if take > 0 then
@@ -177,6 +180,82 @@ function E.CheckMail()
         end
         if count then E.mailCounts[key] = count end
     end
+end
+function E.Gift(index, attach)
+    if not GetInboxHeaderInfo or not GetInboxItemLink then return end
+    local _, _, sender, _, _, _, _, items, _, _, _, canReply = GetInboxHeaderInfo(index)
+    if not canReply or (items or 0) == 0 or (GetInboxInvoiceInfo and GetInboxInvoiceInfo(index)) then return end
+    for a = attach or 1, attach or ATTACHMENTS do
+        local link = GetInboxItemLink(index, a)
+        local itemID, suffix = ns.Lot.FromLink(link)
+        if itemID and candidate(itemID, link) then
+            local key = itemID .. ":" .. suffix
+            local count = GetInboxItem and select(3, GetInboxItem(index, a)) or 1
+            local gift = E.gifts[key] or {count = 0}
+            gift.count, gift.from = gift.count + (count or 1), sender
+            E.gifts[key] = gift
+            E.arriving[key] = (E.arriving[key] or 0) + (count or 1)
+        end
+    end
+    if ns.CollectUI then ns.CollectUI.Refresh() end
+end
+function E.Untracked()
+    local bags = ns.DisenchantLog.BagSnapshot()
+    if not bags then return {} end
+    local held = {}
+    for _, chain in ipairs(ns.Accounting.Project().chains) do
+        if chain.state ~= "lost" then
+            local key = chain.itemID .. ":" .. chain.suffix
+            held[key] = (held[key] or 0) + math.max(0, chain.received - chain.processed)
+        end
+    end
+    local out = {}
+    for key, item in pairs(bags) do
+        local count = item.count - (held[key] or 0)
+        local model = count > 0 and candidate(item.itemID, item.link)
+        if model then
+            local gift = E.gifts[key]
+            out[#out + 1] = {key = key, itemID = item.itemID, suffix = item.suffix, link = item.link, count = count,
+                level = model.level, quality = model.quality, band = model.band,
+                gift = gift and math.min(gift.count, count) or 0, from = gift and gift.from}
+        end
+    end
+    table.sort(out, function(a, b)
+        if (a.gift > 0) ~= (b.gift > 0) then return a.gift > 0 end
+        if a.level ~= b.level then return a.level > b.level end
+        return a.key < b.key
+    end)
+    return out
+end
+function E.GiftCount()
+    if not next(E.gifts) then return 0 end
+    local total = 0
+    for _, item in ipairs(E.Untracked()) do total = total + item.gift end
+    return total
+end
+function E.Add(items, basis, own)
+    if #items == 0 then return nil, "acIntakeNone" end
+    local A, costs, missing = ns.Accounting, {}, 0
+    for index, item in ipairs(items) do
+        costs[index] = A.UnitCost(item, basis, own)
+        if not costs[index] then missing = missing + 1 end
+    end
+    if missing > 0 then return nil, basis == "own" and "acInvalid" or "acIntakeNoPrice", missing end
+    local added = 0
+    for index, item in ipairs(items) do
+        local gift = item.gift > 0 and E.gifts[item.key]
+        local id = A.Intake({itemID = item.itemID, link = item.link, suffix = item.suffix, count = item.count,
+            cost = costs[index] * item.count, basis = basis, from = gift and gift.from or nil, level = item.level,
+            quality = item.quality, band = item.band}, gift and "mail" or "bags")
+        if id then
+            added = added + item.count
+            if gift then
+                gift.count = gift.count - item.count
+                if gift.count <= 0 then E.gifts[item.key] = nil end
+            end
+        end
+    end
+    return added
 end
 local function disenchantable()
     local keys = {}
@@ -252,11 +331,14 @@ function E.BagChanged()
     E.dirty = true
 end
 function E.Update()
-    if E.dirty then E.dirty = false; E.CheckMail() end
+    if E.dirty then
+        E.dirty = false; E.CheckMail()
+        if next(E.gifts) and ns.CollectUI then ns.CollectUI.Refresh() end
+    end
     if E.capture then E.Settle() end
 end
 function E.MailShow()
-    E.mailOpen, E.mailCounts = true, {}
+    E.mailOpen, E.mailCounts, E.arriving = true, {}, {}
     for key, info in pairs(awaited()) do E.mailCounts[key] = E.BagCount(info.itemID, info.suffix) end
 end
 function E.Install()
@@ -271,7 +353,8 @@ function E.Install()
     hook("StartAuction", function(...) E.Posting(...) end)
     hook("CancelAuction", function(index) E.Cancelling(index) end)
     hook("TakeInboxMoney", function(index) E.Taking(index) end)
-    hook("AutoLootMailItem", function(index) E.Taking(index) end)
+    hook("AutoLootMailItem", function(index) E.Taking(index); E.Gift(index) end)
+    hook("TakeInboxItem", function(index, attach) E.Gift(index, attach) end)
 end
 E.Install()
 local frame = ns.NewFrame("Frame")
@@ -281,7 +364,7 @@ for _, event in ipairs({"PLAYER_LOGIN", "MAIL_SHOW", "MAIL_CLOSED", "BAG_UPDATE"
 frame:SetScript("OnEvent", function(_, event, first, second)
     if event == "PLAYER_LOGIN" then E.Install()
     elseif event == "MAIL_SHOW" then E.MailShow()
-    elseif event == "MAIL_CLOSED" then E.mailOpen, E.mailCounts = false, nil
+    elseif event == "MAIL_CLOSED" then E.mailOpen, E.mailCounts, E.arriving = false, nil, {}
     elseif event == "BAG_UPDATE" then E.BagChanged()
     elseif event == "CHAT_MSG_SYSTEM" or event == "UI_ERROR_MESSAGE" then E.Message(event, first)
     elseif event == "AUCTION_MULTISELL_UPDATE" then

@@ -108,6 +108,7 @@ function UI:ChainCells(chain, fee)
     local K, D = ns.TradeKit, ns.Disenchant
     local cells = {stage = {ns.T("acStage_" .. chain.stage), TONE[chain.stage]}, cost = {K.Money(chain.cost)},
         when = {date("%d.%m %H:%M", chain.at), "secondary"}}
+    if chain.basis then cells.cost = {chain.basis == "free" and ns.T("acFree") or K.Money(chain.cost), "accent"} end
     if chain.stage == "done" then
         cells.market = {chain.gross and K.Money(chain.gross) or ns.T("tradeNoPrice"), chain.gross and "text" or "secondary"}
         cells.net = {chain.value and K.Money(chain.value) or ns.T("tradeNoPrice"), "secondary"}
@@ -134,6 +135,11 @@ local function chainTip(chain, fee)
     local K = ns.TradeKit
     local tip = ns.T("acChainTip", chain.level or 0, chain.count, chain.received, chain.processed,
         ns.T("acSource_" .. (chain.source or "manual")))
+    if chain.basis then
+        tip = tip .. "\n" .. ns.T("acBasisLine", ns.T("acBasis_" .. chain.basis), K.Money(chain.cost))
+        if chain.from then tip = tip .. "\n" .. ns.T("acFromLine", chain.from) end
+        if chain.basis == "free" then tip = tip .. "\n" .. ns.T("acFreeWarn") end
+    end
     if chain.gross then
         local lines = {}
         for id, count in pairs(chain.outputs) do
@@ -274,6 +280,11 @@ function UI:Journal(p, since)
                     fn = function() self:SaleCount(sale) end}
             end
             local label = ns.T("acEvent_" .. event.kind)
+            local tip = p.reversed[event.id] and ns.T("acReversed") or nil
+            if event.basis then
+                label = ns.T("acEvent_intake")
+                tip = tip or ns.T("acBasisLine", ns.T("acBasis_" .. event.basis), K.Money(event.cost))
+            end
             if event.kind == "sale" or event.kind == "disenchant" or event.kind == "post" then
                 local count = event.count or (event.stack and event.stack * event.stacks)
                 if event.outputs then
@@ -284,11 +295,12 @@ function UI:Journal(p, since)
             end
             lines[#lines + 1] = {key = "e" .. event.id, id = itemID, title = itemID and nil or label, mode = "journal",
                 cells = {event = {label, p.reversed[event.id] and "off" or "text"},
-                    amount = {amount and K.Money(amount) or "", p.reversed[event.id] and "off" or "text"},
+                    amount = {event.basis == "free" and ns.T("acFree") or (amount and K.Money(amount) or ""),
+                        p.reversed[event.id] and "off" or (event.basis and "accent" or "text")},
                     source = {ns.T("acSource_" .. (event.source or "manual")), "secondary"},
                     when = {date("%d.%m %H:%M", event.at), "secondary"}},
                 actions = actions,
-                tip = p.reversed[event.id] and ns.T("acReversed") or nil}
+                tip = tip}
         end
     end
     return lines
@@ -386,6 +398,7 @@ function UI:Render()
     local hint = self.message
     if not hint and p.unknownSales > 0 then hint = ns.T("acUnknownSales", p.unknownSales) end
     if not hint and p.stages.unsure > 0 then hint = ns.T("acUnsureHint", p.stages.unsure) end
+    if not hint and p.free > 0 then hint = ns.T("acFreeHint", p.free) end
     self.status:SetWidth(width - 160)
     self.status:SetText(hint or "")
     ns.TradeKit.Tooltip(self.views.frame, ns.T("acTitle"), ns.T("acHint"))
@@ -410,8 +423,12 @@ function UI:New(parent)
     view.add:SetHeight(22)
     view.add:SetPoint("RIGHT", view.fee.frame, "LEFT", -8, 0)
     K.Tooltip(view.add, ns.T("acAddPurchase"), ns.T("acAddPurchaseTip"))
+    view.intake = K.Button(f, ns.T("acIntakeButton"), 110, function() UI.Intake() end, "quiet")
+    view.intake:SetHeight(22)
+    view.intake:SetPoint("RIGHT", view.add, "LEFT", -8, 0)
+    K.Tooltip(view.intake, ns.T("acIntakeTitle"), ns.T("acIntakeButtonTip"))
     ns.CollectUI.Attach(f, 130, function(b)
-        b:SetPoint("RIGHT", view.add, "LEFT", -8, 0); view.disenchant = b
+        b:SetPoint("RIGHT", view.intake, "LEFT", -8, 0); view.disenchant = b
     end)
     for index = 1, 4 do view.tiles[index] = K.StatTile:New(f) end
     local modes = {}
@@ -463,6 +480,114 @@ function UI:New(parent)
     f:SetScript("OnShow", function() view:Render() end)
     self.all[#self.all + 1] = view
     view:Render(); return view
+end
+local INTAKE_ROWS = 8
+function UI.Intake()
+    local K, A, E = ns.TradeKit, ns.Accounting, ns.AccountingEvents
+    local w = UI.intake
+    if not w then
+        w = {checked = {}, rows = {}, items = {}}
+        UI.intake = w
+        local frame = K.Window(UIParent, ns.T("acIntakeTitle"), 540, 404)
+        w.frame = frame
+        local hint = K.Label(frame, ns.T("acIntakeHint"), 14, -36, 510, "secondary"); hint:SetHeight(28)
+        w.all = K.Check(frame, function(on)
+            for _, item in ipairs(w.items) do w.checked[item.key] = on or nil end
+            UI.RenderIntake()
+        end)
+        w.all:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -68)
+        K.Label(frame, ns.T("acIntakeAll"), 34, -71, 200, "secondary")
+        w.scroll = K.Scroller:New(frame, UI.RenderIntake, ROW)
+        w.scroll.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -90)
+        w.scroll.frame:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", -10, -90 - INTAKE_ROWS * ROW)
+        for index = 1, INTAKE_ROWS do
+            local row, y = {}, -90 - (index - 1) * ROW
+            row.check = K.Check(frame, function(on)
+                if row.item then w.checked[row.item.key] = on or nil; UI.RenderIntake() end
+            end)
+            row.check:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, y - 3)
+            row.name = K.ItemChoice(frame, function()
+                if row.item then w.checked[row.item.key] = not w.checked[row.item.key] or nil; UI.RenderIntake() end
+            end)
+            row.name:SetWidth(270); row.name:SetHeight(ROW); row.name.text:SetWidth(240)
+            row.name:SetPoint("TOPLEFT", frame, "TOPLEFT", 34, y)
+            row.count = K.Label(frame, "", 310, y - 6, 60); row.count:SetJustifyH("RIGHT")
+            row.cost = K.Label(frame, "", 376, y - 6, 130); row.cost:SetJustifyH("RIGHT")
+            w.scroll:Wheel(row.name)
+            w.rows[index] = row
+        end
+        w.empty = K.Label(frame, ns.T("acIntakeEmpty"), 34, -96, 470, "secondary"); w.empty:SetHeight(40)
+        local y = -100 - INTAKE_ROWS * ROW
+        K.Label(frame, ns.T("acIntakeBasis"), 14, y, 200, "secondary")
+        local bases = {}
+        for _, basis in ipairs(A.BASES) do bases[#bases + 1] = {key = basis, label = ns.T("acBasis_" .. basis)} end
+        w.basisSegment = K.Segment(frame, bases, function(key) w.basis = key; UI.RenderIntake() end)
+        w.basisSegment.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, y - 16)
+        K.Tooltip(w.basisSegment.frame, ns.T("acIntakeBasis"), ns.T("acIntakeBasisTip"))
+        w.own = K.Edit(frame, 80)
+        w.own:SetPoint("LEFT", w.basisSegment.frame, "RIGHT", 8, 0)
+        K.LiveEdit(w.own, function() UI.RenderIntake() end)
+        K.Tooltip(w.own, ns.T("acBasis_own"), ns.T("acIntakeOwnTip"))
+        w.total = K.Label(frame, "", 14, y - 46, 510)
+        w.error = K.Label(frame, "", 14, y - 64, 380); w.error:SetHeight(30)
+        w.error:SetTextColor(unpack(K.theme.negative))
+        w.add = K.Button(frame, ns.T("acIntakeAdd"), 110, function()
+            local list = {}
+            for _, item in ipairs(w.items) do if w.checked[item.key] then list[#list + 1] = item end end
+            local own = w.basis == "own" and A.Price(w.own:GetText()) or nil
+            local added, err, missing = E.Add(list, w.basis, own)
+            if not added then w.error:SetText(ns.T(err or "acInvalid", missing or 0)); return end
+            frame:Hide()
+            ns.say(ns.T("acIntakeDone", added, ns.T("acBasis_" .. w.basis)))
+        end, "main")
+        w.add:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, 12)
+    end
+    w.items, w.checked, w.basis = E.Untracked(), {}, "model"
+    for _, item in ipairs(w.items) do if item.gift > 0 then w.checked[item.key] = true end end
+    w.own:SetText(""); w.error:SetText(""); w.scroll.offset = 0
+    w.frame:Show(); UI.RenderIntake()
+end
+function UI.RenderIntake()
+    local w = UI.intake
+    if not w or not w.frame:IsShown() then return end
+    local K, A = ns.TradeKit, ns.Accounting
+    local own = w.basis == "own" and A.Price(w.own:GetText()) or nil
+    local offset = w.scroll:SetRange(#w.items, INTAKE_ROWS)
+    local pieces, total, missing, all = 0, 0, 0, #w.items > 0
+    for _, item in ipairs(w.items) do
+        local unit = A.UnitCost(item, w.basis, own)
+        item.unit = unit
+        if w.checked[item.key] then
+            pieces = pieces + item.count
+            if unit then total = total + unit * item.count else missing = missing + 1 end
+        else all = false end
+    end
+    for index, row in ipairs(w.rows) do
+        local item = w.items[offset + index]
+        row.item = item
+        if item then
+            K.SetItemChoice(row.name, item.itemID, false, item.quality)
+            row.name.itemLink = item.link
+            row.name.extraTip = item.gift > 0 and ns.T("acFromLine", item.from or "?") or nil
+            row.check:SetChecked(w.checked[item.key] == true); row.check:Show()
+            row.count:SetText("x" .. item.count)
+            local text = w.basis == "free" and ns.T("acFree") or (item.unit and K.Money(item.unit * item.count) or ns.T("tradeNoPrice"))
+            row.cost:SetText(text)
+            row.cost:SetTextColor(unpack(item.unit and K.theme.text or K.theme.secondary))
+        else
+            row.name:Hide(); row.check:Hide(); row.count:SetText(""); row.cost:SetText("")
+        end
+    end
+    if #w.items == 0 then w.empty:Show() else w.empty:Hide() end
+    w.all:SetChecked(all)
+    w.basisSegment:Select(w.basis)
+    if w.basis == "own" then w.own:Show() else w.own:Hide() end
+    local text = ns.T("acIntakeTotal", pieces, w.basis == "free" and ns.T("acFree") or K.Money(total))
+    if missing > 0 then text = text .. " " .. ns.T("acIntakeMissing", missing) end
+    if w.basis == "free" and pieces > 0 then text = text .. " " .. ns.T("acFreeWarn") end
+    w.total:SetText(text)
+    w.error:SetText("")
+    if pieces > 0 then w.add:Enable() else w.add:Disable() end
 end
 function UI.Open()
     if not UI.window then

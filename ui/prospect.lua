@@ -456,12 +456,16 @@ function UI:Render()
             local row, entry = self.rows[usedRows], line.entry
             if row then
                 row.frame:ClearAllPoints(); row.frame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -top - (i - 1) * 24)
+                local quote = ns.Markets.Quote(entry.id)
+                local bought, boughtTone, boughtTip = K.BoughtMark(entry.id, quote and quote.at)
                 row:SetProps({id = entry.id, width = width, target = target, level = entry.source.skill,
+                    tag = bought, tagTone = boughtTone,
                     cost = entry.cost, margin = entry.estimate.margin, percent = entry.estimate.percent,
                     via = entry.via, viaRate = entry.viaRate, active = entry.id == s.selected,
                     match = s.buyMode == "price" and entry.unit ~= nil and entry.unit < s.buyPrice
                         or s.buyMode == "margin" and entry.estimate.percent ~= nil and entry.estimate.percent > s.buyPercent,
-                    tip = ns.T("pmRowTip", entry.source.skill) .. "\n" .. self:Formula(entry),
+                    tip = ns.T("pmRowTip", entry.source.skill) .. "\n" .. self:Formula(entry)
+                        .. (boughtTip and ("\n\n" .. boughtTip) or ""),
                     actionDisabled = busy or not ns.Scan.state.open or entry.unit == nil,
                     refreshDisabled = busy or not ns.Scan.state.open})
             end

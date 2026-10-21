@@ -59,7 +59,7 @@ function UI:Controls()
         end
     elseif row then
         self.act:SetText(ns.T(row.kind == "bid" and "bargainDoBid" or "bargainDoBuyout", K.Money(row.cost)))
-        if phase == "idle" and ns.Scan.state.open then self.act:Enable() else self.act:Disable() end
+        if phase == "idle" and ns.Scan.state.open and not row.placed then self.act:Enable() else self.act:Disable() end
     else
         self.act:SetText(ns.T("bargainPick")); self.act:Disable()
     end
@@ -200,10 +200,13 @@ function UI:Render()
             if vendorTip then copies = copies .. "\n\n" .. vendorTip end
             view.frame:ClearAllPoints(); view.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 10, -62 - (i - 1) * 24)
             view:SetProps({key = row.key, id = row.item, width = width, mode = p.kind, cells = self:Cells(row, scanAge),
-                tag = UI.VendorTag(row), active = selected == row, tip = ns.T("bargainRowTip") .. copies,
+                tag = row.placed and ns.T(row.kind == "bid" and "boughtBidTag" or "boughtTag", row.count)
+                    or UI.VendorTag(row), tagTone = row.placed and (row.kind == "bid" and "secondary" or "accent") or nil,
+                active = selected == row, tip = ns.T("bargainRowTip") .. copies
+                    .. (row.placed and ("\n\n" .. ns.T(row.kind == "bid" and "bargainPlacedBidTip" or "bargainPlacedTip")) or ""),
                 actions = {{label = ns.T(row.kind == "bid" and "bargainActBid" or "bargainActBuyout"),
                     tip = ns.T(row.kind == "bid" and "bargainActBidTip" or "bargainActBuyoutTip"),
-                    disabled = not (ns.Scan.state.open and ns.Scan.state.phase == "idle"),
+                    disabled = row.placed or not (ns.Scan.state.open and ns.Scan.state.phase == "idle"),
                     fn = function(key) self:Act(key) end}}})
         else view.frame:Hide() end
     end

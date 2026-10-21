@@ -76,11 +76,19 @@ function UI:New(parent)
     view.disenchant:SetPoint("LEFT", view.take, "RIGHT", 4, 0)
     view.hide = K.IconButton(f, "hide", function() UI.SetShown(false) end, ns.T("collectHide"), ns.T("collectHideTip"))
     view.hide:SetPoint("LEFT", view.disenchant, "RIGHT", 6, 0)
+    view.intake = K.Button(f, "", 136, function() ns.AccountingUI.Intake() end, "control")
+    view.intake:SetPoint("TOPLEFT", view.take, "BOTTOMLEFT", 0, -4)
+    K.Tooltip(view.intake, ns.T("acIntakeTitle"), ns.T("acIntakeMailTip"))
     view.status = K.Label(f, "", 8, -30, 300, "secondary")
     f:SetScript("OnShow", function() view:Render() end)
     return view
 end
 function UI:Render()
+    local gifts, top = ns.AccountingEvents.GiftCount(), 30
+    if gifts > 0 then
+        self.intake:SetText(ns.T("acIntakeMail", gifts)); self.intake:Show(); top = 56
+    else self.intake:Hide() end
+    self.status:ClearAllPoints(); self.status:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 8, -top)
     local mail = C.active and #C.MailTargets(C.budget or {}) or C.MailCount()
     if C.active then
         self.take:SetText(ns.T("collectStop", C.taken)); self.take:Enable()
@@ -91,7 +99,7 @@ function UI:Render()
     UI.RenderDisenchant(self.disenchant)
     local status = C.reason and ns.T(C.reason, C.taken) or ""
     self.status:SetText(status)
-    self.frame:SetHeight(status ~= "" and 46 or 30)
+    self.frame:SetHeight(top + (status ~= "" and 16 or 0))
 end
 function UI.Refresh()
     local panel = UI.panel

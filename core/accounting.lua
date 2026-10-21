@@ -64,7 +64,7 @@ function A.Project(book, since, now)
         posts = {}, byPost = {}, journal = {}, reversed = {}, byEvent = {},
         stages = {sent = 0, unsure = 0, mail = 0, bag = 0, done = 0, lost = 0},
         holding = 0, holdingCount = 0, spent = 0, gross = 0, fees = 0, net = 0, soldCost = 0,
-        stockCost = 0, stockValue = 0, unknownStock = false, unknownSales = 0, outputValue = 0}
+        stockCost = 0, stockValue = 0, unknownStock = false, unknownSales = 0, outputValue = 0, free = 0}
     for _, event in ipairs(book.events) do
         p.byEvent[event.id] = event
         if event.kind == "reverse" then p.reversed[event.target] = event.id end
@@ -85,7 +85,8 @@ function A.Project(book, since, now)
             chain = {id = event.id, itemID = event.itemID, link = event.link, suffix = event.suffix or 0,
                 count = event.count, cost = event.cost, owner = event.owner, level = event.level,
                 quality = event.quality, band = event.band, at = event.at, source = event.source,
-                state = event.sent and "sent" or "bought", received = 0, processed = 0, outputs = {}, events = {event.id}}
+                basis = event.basis, from = event.from, state = event.sent and "sent" or "bought",
+                received = event.basis and event.count or 0, processed = 0, outputs = {}, events = {event.id}}
             p.chains[#p.chains + 1], p.byChain[chain.id] = chain, chain
         elseif chain and event.kind == "won" then chain.state = "bought"; chain.events[#chain.events + 1] = event.id
         elseif chain and event.kind == "lost" then chain.state = "lost"; chain.events[#chain.events + 1] = event.id
@@ -186,6 +187,7 @@ function A.Project(book, since, now)
         if stage == "done" and chain.value then chain.result = chain.value - chain.cost end
         if chain.at >= since then
             p.stages[stage] = p.stages[stage] + 1
+            if chain.basis == "free" then p.free = p.free + 1 end
             if stage ~= "lost" and stage ~= "sent" then p.spent = p.spent + chain.cost end
             if chain.value then p.outputValue = p.outputValue + chain.value end
         end
@@ -208,6 +210,28 @@ function A.Buy(values, source)
     return append({kind = "buy", itemID = values.itemID, link = values.link, suffix = values.suffix or 0,
         count = values.count, cost = values.cost, owner = A.Text(values.owner), level = values.level,
         quality = values.quality, band = values.band, sent = values.sent == true or nil}, source)
+end
+A.BASES = {"free", "model", "vendor", "own"}
+function A.UnitCost(item, basis, own)
+    if basis == "free" then return 0 end
+    if basis == "own" then return integer(own, 0) and own or nil end
+    if basis == "vendor" then
+        local vendor = select(11, ns.Compat.ItemInfo(item.link or item.itemID))
+        return type(vendor) == "number" and vendor > 0 and vendor or nil
+    end
+    local D = ns.Disenchant
+    local band = basis == "model" and item.band and D and D.Band(item.band)
+    local estimate = band and D.Estimate(band, 0, A.Book().fee or 0.05, nil, A.Selling())
+    return estimate and estimate.net and math.max(0, math.floor(estimate.net)) or nil
+end
+function A.Intake(values, source)
+    local known = false
+    for _, basis in ipairs(A.BASES) do if values.basis == basis then known = true end end
+    if not known or not integer(values.itemID, 1, 10000000) or not integer(values.count, 1, 1000)
+        or not integer(values.cost, 0) then return nil, "acInvalid" end
+    return append({kind = "buy", itemID = values.itemID, link = values.link, suffix = values.suffix or 0,
+        count = values.count, cost = values.cost, basis = values.basis, from = values.from and A.Text(values.from) or nil,
+        level = values.level, quality = values.quality, band = values.band}, source or "bags")
 end
 function A.Resolve(target, won, source)
     local chain = liveChain(nil, target)
@@ -245,7 +269,7 @@ function A.Disenchant(target, outputs, source)
     local id = append({kind = "disenchant", target = target, outputs = copy}, source)
     if ns.DisenchantLog then
         ns.DisenchantLog.Record({itemID = chain.itemID, suffix = chain.suffix, link = chain.link, level = chain.level,
-            quality = chain.quality, band = chain.band, outputs = copy, bought = true, chain = chain.id, ledger = id},
+            quality = chain.quality, band = chain.band, outputs = copy, bought = chain.basis == nil, chain = chain.id, ledger = id},
             source == "cast" and "cast" or "manual")
     end
     return id

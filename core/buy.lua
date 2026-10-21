@@ -16,6 +16,23 @@ local R = {
 }
 Buy.state = R
 Buy.onChange = nil
+Buy.history = {}
+local function note(item, offer, sign)
+    if not item then return end
+    local h = Buy.history[item] or {units = 0, bids = 0, spent = 0, bidSpent = 0, at = 0}
+    if offer.bid then
+        h.bids, h.bidSpent = math.max(0, h.bids + sign * offer.stack), math.max(0, h.bidSpent + sign * offer.bid)
+    else
+        h.units, h.spent = math.max(0, h.units + sign * offer.stack), math.max(0, h.spent + sign * offer.buyout)
+    end
+    if sign > 0 then h.at = time() end
+    Buy.history[item] = h
+end
+function Buy.Bought(item, since)
+    local h = Buy.history[item]
+    if not h or h.units + h.bids == 0 or h.at < (since or 0) then return nil end
+    return h
+end
 local BID_KEYS = {sayBuyDone = "sayBidDone", sayBuyShort = "sayBidShort", sayBuyStopped = "sayBidStopped",
     sayBuyForeign = "sayBidForeign"}
 local sending = false
@@ -238,6 +255,7 @@ function Buy.Confirm()
             else
                 local observer = ns.AccountingEvents
                 local before = observer and observer.last
+                local item = ns.Lot.FromLink(GetAuctionItemLink("list", m.index)) or R.itemID
                 PlaceAuctionBid("list", m.index, amount)
                 local request = observer and observer.last ~= before and observer.last or nil
                 if R.filter then
@@ -247,7 +265,8 @@ function Buy.Confirm()
                 money = money - amount
                 R.want[o] = R.want[o] - 1
                 R.bought, R.spent = R.bought + o.stack, R.spent + amount
-                R.pending[#R.pending + 1] = { offer = o, expires = now + PENDING, request = request }
+                R.pending[#R.pending + 1] = { offer = o, item = item, expires = now + PENDING, request = request }
+                note(item, o, 1)
                 per[o] = (per[o] or 0) + 1
                 bids = bids + 1
             end
@@ -297,6 +316,7 @@ function Buy.OnListUpdate()
     R.phase, R.readAt, R.rereads = "settle", GetTime() + SETTLE, 0
 end
 local function refund(p)
+    note(p.item, p.offer, -1)
     p.offer.count = p.offer.count + 1
     R.bought, R.spent, R.refused = R.bought - p.offer.stack, R.spent - (p.offer.bid or p.offer.buyout), R.refused + 1
     if Buy.Active() then
